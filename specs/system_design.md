@@ -428,6 +428,20 @@ Lexical retrieval should support field-aware weighting across:
 
 The ranking model is BM25-style lexical scoring. The retrieval implementation uses an inverted index so both raw-section retrieval and concept-card retrieval can scale without changing the knowledge model.
 
+Initial lexical normalization should remain intentionally minimal:
+
+- lowercase all text
+- tokenize with a simple regex-based tokenizer
+- strip punctuation through tokenization rules
+- optionally remove a small stop-word set
+- do not apply stemming, lemmatization, or synonym expansion in the initial prototype
+
+The same normalization pipeline must be applied consistently to:
+
+- raw sections
+- concept cards
+- user queries
+
 ### Indexing and Card Maintenance Semantics
 
 The indexing workflow treats document changes at the document level, not at the raw-section diff level.
