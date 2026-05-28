@@ -172,3 +172,22 @@ You may need to verify your current email.
 
     assert section.token_count == 18
     assert section.block_types_present == ["code", "list", "paragraph"]
+
+
+def test_parse_markdown_document_creates_fallback_section_for_headingless_markdown() -> None:
+    markdown = """Intro without heading.
+
+More details.
+"""
+
+    document = parse_markdown_document(
+        document_path="docs/faq.md",
+        markdown=markdown,
+        max_chunk_chars=1_000,
+    )
+
+    assert document.title == "faq"
+    assert len(document.sections) == 1
+    assert document.sections[0].heading == "faq"
+    assert document.sections[0].heading_path == "faq"
+    assert document.sections[0].citation == "faq.md#faq"

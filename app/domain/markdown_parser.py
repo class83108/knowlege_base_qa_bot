@@ -146,6 +146,21 @@ def parse_markdown_sections(
 
     flush_block()
 
+    if not sections and markdown.strip():
+        fallback_heading = Path(document_path).stem
+        current = _SectionBuffer(
+            heading=fallback_heading,
+            heading_path=fallback_heading,
+            level=1,
+            blocks=[
+                _SectionBlock(
+                    content=markdown.strip(),
+                    block_type=_classify_block(markdown.strip()),
+                )
+            ],
+        )
+        sections.append(current)
+
     parsed_sections: list[ParsedSection] = []
     for section in sections:
         parsed_sections.extend(
