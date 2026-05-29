@@ -28,6 +28,9 @@ def list_query_records(request: Request) -> list[dict]:
             "card_support_sections": record.card_support_sections,
             "raw_candidate_sections": record.raw_candidate_sections,
             "raw_evidence_sections": record.raw_evidence_sections,
+            "latency_ms": record.latency_ms,
+            "input_tokens": record.input_tokens,
+            "output_tokens": record.output_tokens,
         }
         for record in repository.list_query_records()
     ]

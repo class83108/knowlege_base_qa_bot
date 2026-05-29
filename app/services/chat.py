@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 
 from app.db.raw_index_repository import (
     ConceptCardSearchResult,
@@ -34,6 +35,7 @@ class ChatService:
         self._answer_generator = answer_generator or EchoEvidenceGenerator()
 
     def answer(self, query: str) -> dict:
+        started_at = perf_counter()
         if not self._repository.has_active_index():
             response = {
                 "status": "not_indexed",
@@ -48,6 +50,7 @@ class ChatService:
                 query,
                 response,
                 decision_reason="not_indexed",
+                latency_ms=_elapsed_ms(started_at),
             )
             return response
 
@@ -94,6 +97,7 @@ class ChatService:
                         supported_card_titles=[card.title for card in supported_cards],
                         card_support_sections=[section.citation for section in card_support_sections],
                         raw_candidate_sections=raw_candidate_sections,
+                        latency_ms=_elapsed_ms(started_at),
                     )
                 contributing_cards = supported_cards
 
@@ -124,6 +128,7 @@ class ChatService:
                 card_support_sections=[section.citation for section in card_support_sections],
                 raw_candidate_sections=raw_candidate_sections,
                 raw_evidence_sections=[section.citation for section in raw_evidence.sections],
+                latency_ms=_elapsed_ms(started_at),
             )
             return response
 
@@ -142,6 +147,7 @@ class ChatService:
             supported_card_titles=[card.title for card in supported_cards],
             card_support_sections=[section.citation for section in card_support_sections],
             raw_candidate_sections=raw_candidate_sections,
+            latency_ms=_elapsed_ms(started_at),
         )
 
     def _build_card_response(
@@ -157,9 +163,11 @@ class ChatService:
         supported_card_titles: list[str],
         card_support_sections: list[str],
         raw_candidate_sections: list[str],
+        latency_ms: int,
     ) -> dict:
         prompt = build_grounded_answer_prompt(query=query, sections=card_evidence_sections)
-        grounded_answer = parse_grounded_answer_response(self._answer_generator.generate(prompt))
+        generation = self._answer_generator.generate(prompt)
+        grounded_answer = parse_grounded_answer_response(generation.payload)
         allowed_citations = {section.citation for section in card_evidence_sections}
         response_citations = [c for c in grounded_answer.citations if c in allowed_citations]
         ok = grounded_answer.status == "ok"
@@ -183,6 +191,9 @@ class ChatService:
             card_support_sections=card_support_sections,
             raw_candidate_sections=raw_candidate_sections,
             raw_evidence_sections=[section.citation for section in card_evidence_sections],
+            latency_ms=latency_ms,
+            input_tokens=generation.input_tokens,
+            output_tokens=generation.output_tokens,
         )
         return response
 
@@ -199,6 +210,7 @@ class ChatService:
         supported_card_titles: list[str],
         card_support_sections: list[str],
         raw_candidate_sections: list[str],
+        latency_ms: int,
     ) -> dict:
         citations = [section.citation for section in raw_evidence_sections]
         prompt = build_grounded_answer_prompt(
@@ -206,7 +218,8 @@ class ChatService:
             sections=raw_evidence_sections,
             cards=supported_cards or None,
         )
-        grounded_answer = parse_grounded_answer_response(self._answer_generator.generate(prompt))
+        generation = self._answer_generator.generate(prompt)
+        grounded_answer = parse_grounded_answer_response(generation.payload)
         ok = grounded_answer.status == "ok"
         response_citations = [c for c in grounded_answer.citations if c in citations] if ok else []
         if not ok:
@@ -238,6 +251,9 @@ class ChatService:
             card_support_sections=card_support_sections,
             raw_candidate_sections=raw_candidate_sections,
             raw_evidence_sections=citations,
+            latency_ms=latency_ms,
+            input_tokens=generation.input_tokens,
+            output_tokens=generation.output_tokens,
         )
         return response
 
@@ -254,6 +270,9 @@ class ChatService:
         card_support_sections: list[str] | None = None,
         raw_candidate_sections: list[str] | None = None,
         raw_evidence_sections: list[str] | None = None,
+        latency_ms: int | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
     ) -> None:
         self._repository.log_query_record(
             QueryRecord(
@@ -272,6 +291,9 @@ class ChatService:
                 card_support_sections=card_support_sections or [],
                 raw_candidate_sections=raw_candidate_sections or [],
                 raw_evidence_sections=raw_evidence_sections or [],
+                latency_ms=latency_ms,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             )
         )
 
@@ -308,3 +330,7 @@ def _used_card_titles(
 ) -> list[str]:
     citation_set = set(citations)
     return [card.title for card in cards if citation_set.intersection(card.raw_sources)]
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int((perf_counter() - started_at) * 1000)

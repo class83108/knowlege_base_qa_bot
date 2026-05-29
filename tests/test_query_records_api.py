@@ -77,3 +77,6 @@ def test_get_query_records_includes_scores(tmp_path: Path) -> None:
     assert "decision_reason" in records[0]
     assert "candidate_cards" in records[0]
     assert "raw_evidence_sections" in records[0]
+    assert "latency_ms" in records[0]
+    assert "input_tokens" in records[0]
+    assert "output_tokens" in records[0]

@@ -4,8 +4,16 @@ from app.services.answer_generation import OpenAIResponsesGenerator, build_answe
 
 
 class FakeResponsesAPI:
-    def __init__(self, output_text: str | None) -> None:
+    def __init__(
+        self,
+        output_text: str | None,
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> None:
         self.output_text = output_text
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
         self.calls: list[dict] = []
 
     def create(self, **kwargs):
@@ -16,6 +24,13 @@ class FakeResponsesAPI:
 
         response = Response()
         response.output_text = self.output_text
+        if self.input_tokens is not None or self.output_tokens is not None:
+            class Usage:
+                pass
+            usage = Usage()
+            usage.input_tokens = self.input_tokens
+            usage.output_tokens = self.output_tokens
+            response.usage = usage
         return response
 
 
@@ -25,8 +40,18 @@ class FailingResponsesAPI:
 
 
 class FakeClient:
-    def __init__(self, output_text: str | None) -> None:
-        self.responses = FakeResponsesAPI(output_text)
+    def __init__(
+        self,
+        output_text: str | None,
+        *,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+    ) -> None:
+        self.responses = FakeResponsesAPI(
+            output_text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
 
 class FailingClient:
@@ -42,7 +67,7 @@ def test_openai_responses_generator_uses_responses_api() -> None:
 
     output = generator.generate("Prompt text")
 
-    assert output == "Grounded answer."
+    assert output.payload == "Grounded answer."
     assert client.responses.calls == [
         {
             "model": "gpt-5",
@@ -80,7 +105,7 @@ def test_generate_returns_valid_json_when_output_text_is_none() -> None:
 
     output = generator.generate("Prompt text")
 
-    data = json.loads(output)
+    data = json.loads(output.payload)
     assert data["status"] == "cannot_confirm"
 
 
@@ -90,7 +115,7 @@ def test_generate_returns_valid_json_when_output_text_is_empty() -> None:
 
     output = generator.generate("Prompt text")
 
-    data = json.loads(output)
+    data = json.loads(output.payload)
     assert data["status"] == "cannot_confirm"
 
 
@@ -99,7 +124,7 @@ def test_generate_returns_cannot_confirm_on_api_exception() -> None:
 
     output = generator.generate("Prompt text")
 
-    data = json.loads(output)
+    data = json.loads(output.payload)
     assert data["status"] == "cannot_confirm"
 
 
@@ -111,6 +136,20 @@ def test_build_answer_generator_returns_echo_without_api_key() -> None:
 
     output = generator.generate("Evidence:\n[refund_policy.md#refund-timeline]\nhello")
 
-    assert output == (
+    assert output.payload == (
         '{"status": "ok", "answer": "hello", "citations": ["refund_policy.md#refund-timeline"]}'
     )
+
+
+def test_openai_responses_generator_reads_usage_tokens() -> None:
+    client = FakeClient(
+        '{"status":"ok","answer":"x","citations":[]}',
+        input_tokens=123,
+        output_tokens=45,
+    )
+    generator = OpenAIResponsesGenerator(model="gpt-5", client=client)
+
+    output = generator.generate("Prompt text")
+
+    assert output.input_tokens == 123
+    assert output.output_tokens == 45

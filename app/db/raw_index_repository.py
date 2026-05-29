@@ -49,6 +49,9 @@ class QueryRecord:
     card_support_sections: list[str]
     raw_candidate_sections: list[str]
     raw_evidence_sections: list[str]
+    latency_ms: int | None
+    input_tokens: int | None
+    output_tokens: int | None
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,9 @@ def initialize_raw_index_schema(database_path: Path) -> None:
                 card_support_sections TEXT NOT NULL DEFAULT '[]',
                 raw_candidate_sections TEXT NOT NULL DEFAULT '[]',
                 raw_evidence_sections TEXT NOT NULL DEFAULT '[]',
+                latency_ms INTEGER,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -354,8 +360,11 @@ class RawIndexRepository:
                         supported_cards,
                         card_support_sections,
                         raw_candidate_sections,
-                        raw_evidence_sections
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        raw_evidence_sections,
+                        latency_ms,
+                        input_tokens,
+                        output_tokens
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.query_text,
@@ -373,6 +382,9 @@ class RawIndexRepository:
                         json.dumps(record.card_support_sections),
                         json.dumps(record.raw_candidate_sections),
                         json.dumps(record.raw_evidence_sections),
+                        record.latency_ms,
+                        record.input_tokens,
+                        record.output_tokens,
                     ),
                 )
         finally:
@@ -399,7 +411,10 @@ class RawIndexRepository:
                     supported_cards,
                     card_support_sections,
                     raw_candidate_sections,
-                    raw_evidence_sections
+                    raw_evidence_sections,
+                    latency_ms,
+                    input_tokens,
+                    output_tokens
                 FROM query_record
                 ORDER BY query_id ASC
                 """
@@ -421,6 +436,9 @@ class RawIndexRepository:
                     card_support_sections=json.loads(row["card_support_sections"]),
                     raw_candidate_sections=json.loads(row["raw_candidate_sections"]),
                     raw_evidence_sections=json.loads(row["raw_evidence_sections"]),
+                    latency_ms=row["latency_ms"],
+                    input_tokens=row["input_tokens"],
+                    output_tokens=row["output_tokens"],
                 )
                 for row in rows
             ]
@@ -781,3 +799,9 @@ def _ensure_query_record_columns(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE query_record ADD COLUMN raw_evidence_sections TEXT NOT NULL DEFAULT '[]'"
         )
+    if "latency_ms" not in existing_columns:
+        connection.execute("ALTER TABLE query_record ADD COLUMN latency_ms INTEGER")
+    if "input_tokens" not in existing_columns:
+        connection.execute("ALTER TABLE query_record ADD COLUMN input_tokens INTEGER")
+    if "output_tokens" not in existing_columns:
+        connection.execute("ALTER TABLE query_record ADD COLUMN output_tokens INTEGER")

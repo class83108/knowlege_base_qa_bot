@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from app.db.raw_index_repository import QueryRecord, RawSectionSearchResult
+from app.services.answer_generation import AnswerGenerationResult
 from app.services.chat import ChatService
 
 
@@ -38,10 +39,16 @@ class FakeGenerator:
     def __init__(self, answer: str) -> None:
         self.answer = answer
         self.prompts: list[str] = []
+        self.input_tokens = 11
+        self.output_tokens = 7
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> AnswerGenerationResult:
         self.prompts.append(prompt)
-        return self.answer
+        return AnswerGenerationResult(
+            payload=self.answer,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+        )
 
 
 def test_chat_service_uses_generator_for_grounded_answer() -> None:
@@ -126,6 +133,9 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
     assert repository.logged[0].decision_reason == "card_evidence_sufficient"
     assert repository.logged[0].candidate_cards == ["Refund Timeline"]
     assert repository.logged[0].supported_cards == ["Refund Timeline"]
+    assert repository.logged[0].latency_ms is not None
+    assert repository.logged[0].input_tokens == 11
+    assert repository.logged[0].output_tokens == 7
 
 
 def test_chat_service_can_use_generator_fallback_answer() -> None:

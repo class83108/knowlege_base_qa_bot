@@ -6,7 +6,7 @@ from typing import Protocol
 
 
 class AnswerGenerator(Protocol):
-    def generate(self, prompt: str) -> str: ...
+    def generate(self, prompt: str) -> "AnswerGenerationResult": ...
 
 
 @dataclass(frozen=True)
@@ -14,6 +14,13 @@ class GroundedAnswerResponse:
     status: str
     answer: str
     citations: list[str]
+
+
+@dataclass(frozen=True)
+class AnswerGenerationResult:
+    payload: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 _CANNOT_CONFIRM_JSON = json.dumps(
@@ -26,10 +33,10 @@ _CANNOT_CONFIRM_JSON = json.dumps(
 
 
 class EchoEvidenceGenerator:
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> AnswerGenerationResult:
         marker = "Evidence:\n"
         if marker not in prompt:
-            return _CANNOT_CONFIRM_JSON
+            return AnswerGenerationResult(payload=_CANNOT_CONFIRM_JSON)
         evidence = prompt.split(marker, maxsplit=1)[1].strip()
         citations = []
         for block in evidence.split("\n\n"):
@@ -40,12 +47,14 @@ class EchoEvidenceGenerator:
             for block in evidence.split("\n\n")
             for line in block.splitlines()[1:]
         ).strip()
-        return json.dumps(
-            {
-                "status": "ok",
-                "answer": answer_text,
-                "citations": citations,
-            }
+        return AnswerGenerationResult(
+            payload=json.dumps(
+                {
+                    "status": "ok",
+                    "answer": answer_text,
+                    "citations": citations,
+                }
+            )
         )
 
 
@@ -60,16 +69,23 @@ class OpenAIResponsesGenerator:
 
         self._client = OpenAI(api_key=api_key)
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str) -> AnswerGenerationResult:
         try:
             response = self._client.responses.create(
                 model=self._model,
                 input=prompt,
                 text={"format": GROUNDED_ANSWER_FORMAT},
             )
-            return response.output_text or _CANNOT_CONFIRM_JSON
+            usage = getattr(response, "usage", None)
+            input_tokens = getattr(usage, "input_tokens", None) if usage is not None else None
+            output_tokens = getattr(usage, "output_tokens", None) if usage is not None else None
+            return AnswerGenerationResult(
+                payload=response.output_text or _CANNOT_CONFIRM_JSON,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
         except Exception:
-            return _CANNOT_CONFIRM_JSON
+            return AnswerGenerationResult(payload=_CANNOT_CONFIRM_JSON)
 
 
 def build_answer_generator(
