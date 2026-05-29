@@ -8,6 +8,7 @@ def _result(
     heading_path: str,
     content: str,
     token_count: int,
+    score: float = -0.5,
 ) -> RawSectionSearchResult:
     return RawSectionSearchResult(
         document_path="docs/example.md",
@@ -18,6 +19,7 @@ def _result(
         citation=citation,
         token_count=token_count,
         block_types_present=["paragraph"],
+        score=score,
     )
 
 

@@ -89,3 +89,37 @@ def test_indexing_service_generates_concept_cards_during_rebuild(tmp_path: Path)
 
     assert len(cards) == 1
     assert cards[0].title == "Refund Timeline"
+
+
+def test_indexing_service_replaces_stale_concept_cards_on_rebuild(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    kb_dir = tmp_path / ".kb"
+    docs_dir.mkdir()
+    document_path = docs_dir / "refund_policy.md"
+    document_path.write_text(
+        "# Refund Timeline\nRefunds are processed within 5 business days.\n\n## Eligibility\nOnly unused items are eligible for refunds.\n",
+        encoding="utf-8",
+    )
+    service = IndexingService(
+        docs_dir=docs_dir,
+        manifest_path=kb_dir / "index.json",
+        database_path=kb_dir / "knowledge_base.db",
+        max_chunk_chars=1_000,
+    )
+
+    service.rebuild_index()
+    document_path.write_text(
+        "# Refund Timeline\nRefunds are processed within 7 business days.\n",
+        encoding="utf-8",
+    )
+    service.rebuild_index()
+
+    from app.db.raw_index_repository import RawIndexRepository
+
+    repository = RawIndexRepository(kb_dir / "knowledge_base.db")
+    timeline_cards = repository.search_concept_cards("refunds timeline", limit=3)
+    eligibility_cards = repository.search_concept_cards("eligibility", limit=3)
+
+    assert len(timeline_cards) == 1
+    assert timeline_cards[0].summary == "Refunds are processed within 7 business days."
+    assert eligibility_cards == []

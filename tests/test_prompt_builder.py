@@ -13,6 +13,7 @@ def test_build_grounded_answer_prompt_includes_query_and_citations() -> None:
             citation="refund_policy.md#refund-timeline",
             token_count=7,
             block_types_present=["paragraph"],
+            score=-0.5,
         ),
         RawSectionSearchResult(
             document_path="docs/refund_policy.md",
@@ -23,6 +24,7 @@ def test_build_grounded_answer_prompt_includes_query_and_citations() -> None:
             citation="refund_policy.md#eligibility",
             token_count=7,
             block_types_present=["paragraph"],
+            score=-0.4,
         ),
     ]
 

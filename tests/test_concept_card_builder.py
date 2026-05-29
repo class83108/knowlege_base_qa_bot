@@ -14,3 +14,31 @@ def test_build_concept_cards_creates_one_card_per_section() -> None:
     assert [card.title for card in cards] == ["Refund Timeline", "Eligibility"]
     assert cards[0].raw_sources == ["refund_policy.md#refund-timeline"]
     assert cards[1].raw_sources == ["refund_policy.md#eligibility"]
+
+
+def test_build_concept_cards_merges_sections_with_same_heading() -> None:
+    first = parse_markdown_document(
+        document_path="docs/refund_policy.md",
+        markdown="# Refund Timeline\nRefunds are processed within 5 business days.\n",
+        max_chunk_chars=1_000,
+    )
+    second = parse_markdown_document(
+        document_path="docs/returns_faq.md",
+        markdown="# Refund Timeline\nMost refunds complete within 5 to 7 business days.\n",
+        max_chunk_chars=1_000,
+    )
+
+    cards = build_concept_cards([first, second])
+
+    assert len(cards) == 1
+    assert cards[0].title == "Refund Timeline"
+    assert cards[0].raw_sources == [
+        "refund_policy.md#refund-timeline",
+        "returns_faq.md#refund-timeline",
+    ]
+    assert "Refunds are processed within 5 business days." in cards[0].summary
+    assert "Most refunds complete within 5 to 7 business days." in cards[0].summary
+    assert cards[0].key_points == [
+        "Refunds are processed within 5 business days.",
+        "Most refunds complete within 5 to 7 business days.",
+    ]

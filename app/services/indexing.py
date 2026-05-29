@@ -49,7 +49,7 @@ class IndexingService:
         current_documents = (
             plan.unchanged_documents + plan.new_documents + plan.changed_documents
         )
-        repository.upsert_concept_cards(build_concept_cards(current_documents))
+        repository.replace_concept_cards(build_concept_cards(current_documents))
         manifest = build_index_manifest(current_documents)
         write_index_manifest(self._manifest_path, manifest)
         return {

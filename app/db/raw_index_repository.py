@@ -25,6 +25,7 @@ class RawSectionSearchResult:
     citation: str
     token_count: int
     block_types_present: list[str]
+    score: float
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,8 @@ class QueryRecord:
     citations: list[str]
     used_cards: list[str]
     used_raw_sections: list[str]
+    top_card_score: float | None
+    top_raw_score: float | None
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,7 @@ class ConceptCardSearchResult:
     summary: str
     key_points: list[str]
     raw_sources: list[str]
+    score: float
 
 
 def initialize_raw_index_schema(database_path: Path) -> None:
@@ -112,6 +116,8 @@ def initialize_raw_index_schema(database_path: Path) -> None:
                 citations TEXT NOT NULL,
                 used_cards TEXT NOT NULL,
                 used_raw_sections TEXT NOT NULL,
+                top_card_score REAL,
+                top_raw_score REAL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -139,6 +145,7 @@ def initialize_raw_index_schema(database_path: Path) -> None:
             );
             """
         )
+        _ensure_query_record_columns(connection)
         connection.commit()
     finally:
         connection.close()
@@ -265,7 +272,8 @@ class RawIndexRepository:
                     rs.content,
                     rs.citation,
                     rs.token_count,
-                    rs.block_types_present
+                    rs.block_types_present,
+                    bm25(raw_section_fts) AS score
                 FROM raw_section_fts fts
                 JOIN raw_section rs ON rs.section_id = fts.rowid
                 WHERE raw_section_fts MATCH ? AND rs.is_active = 1
@@ -284,6 +292,7 @@ class RawIndexRepository:
                     citation=row["citation"],
                     token_count=row["token_count"],
                     block_types_present=json.loads(row["block_types_present"]),
+                    score=float(row["score"]),
                 )
                 for row in rows
             ]
@@ -317,8 +326,10 @@ class RawIndexRepository:
                         answer,
                         citations,
                         used_cards,
-                        used_raw_sections
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        used_raw_sections,
+                        top_card_score,
+                        top_raw_score
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.query_text,
@@ -328,6 +339,8 @@ class RawIndexRepository:
                         json.dumps(record.citations),
                         json.dumps(record.used_cards),
                         json.dumps(record.used_raw_sections),
+                        record.top_card_score,
+                        record.top_raw_score,
                     ),
                 )
         finally:
@@ -346,7 +359,9 @@ class RawIndexRepository:
                     answer,
                     citations,
                     used_cards,
-                    used_raw_sections
+                    used_raw_sections,
+                    top_card_score,
+                    top_raw_score
                 FROM query_record
                 ORDER BY query_id ASC
                 """
@@ -360,6 +375,8 @@ class RawIndexRepository:
                     citations=json.loads(row["citations"]),
                     used_cards=json.loads(row["used_cards"]),
                     used_raw_sections=json.loads(row["used_raw_sections"]),
+                    top_card_score=row["top_card_score"],
+                    top_raw_score=row["top_raw_score"],
                 )
                 for row in rows
             ]
@@ -502,6 +519,29 @@ class RawIndexRepository:
         finally:
             connection.close()
 
+    def replace_concept_cards(self, cards: list[ConceptCardRecord]) -> None:
+        desired_titles = {card.title for card in cards}
+        connection = sqlite3.connect(self._database_path)
+        try:
+            with connection:
+                if desired_titles:
+                    placeholders = ",".join("?" for _ in desired_titles)
+                    connection.execute(
+                        f"""
+                        UPDATE concept_card
+                        SET is_active = 0
+                        WHERE is_active = 1 AND title NOT IN ({placeholders})
+                        """,
+                        tuple(sorted(desired_titles)),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE concept_card SET is_active = 0 WHERE is_active = 1"
+                    )
+        finally:
+            connection.close()
+        self.upsert_concept_cards(cards)
+
     def search_concept_cards(self, query: str, *, limit: int) -> list[ConceptCardSearchResult]:
         normalized_query = _normalize_fts_query(query)
         if not normalized_query:
@@ -515,7 +555,8 @@ class RawIndexRepository:
                     cc.title,
                     cc.summary,
                     cc.key_points,
-                    cc.raw_sources
+                    cc.raw_sources,
+                    bm25(concept_card_fts) AS score
                 FROM concept_card_fts fts
                 JOIN concept_card cc ON cc.card_id = fts.rowid
                 WHERE concept_card_fts MATCH ? AND cc.is_active = 1
@@ -530,6 +571,7 @@ class RawIndexRepository:
                     summary=row["summary"],
                     key_points=json.loads(row["key_points"]),
                     raw_sources=json.loads(row["raw_sources"]),
+                    score=float(row["score"]),
                 )
                 for row in rows
             ]
@@ -572,6 +614,7 @@ class RawIndexRepository:
                     citation=row["citation"],
                     token_count=row["token_count"],
                     block_types_present=json.loads(row["block_types_present"]),
+                    score=0.0,
                 )
                 for row in rows
             }
@@ -625,3 +668,14 @@ def _normalize_fts_query(query: str) -> str:
             lexical_clause = f"({lexical_clause})"
         clauses.append(lexical_clause)
     return " AND ".join(clauses)
+
+
+def _ensure_query_record_columns(connection: sqlite3.Connection) -> None:
+    existing_columns = {
+        row[1]
+        for row in connection.execute("PRAGMA table_info(query_record)").fetchall()
+    }
+    if "top_card_score" not in existing_columns:
+        connection.execute("ALTER TABLE query_record ADD COLUMN top_card_score REAL")
+    if "top_raw_score" not in existing_columns:
+        connection.execute("ALTER TABLE query_record ADD COLUMN top_raw_score REAL")

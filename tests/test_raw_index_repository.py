@@ -58,6 +58,7 @@ def test_upsert_documents_persists_documents_sections_and_fts(tmp_path: Path) ->
     assert results[0].document_path == "docs/refund_policy.md"
     assert results[0].citation == "refund_policy.md#refund-policy"
     assert "5 business days" in results[0].content
+    assert isinstance(results[0].score, float)
 
 
 def test_replace_documents_marks_previous_versions_inactive(tmp_path: Path) -> None:

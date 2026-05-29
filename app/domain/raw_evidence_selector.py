@@ -11,6 +11,7 @@ class SelectedRawEvidence:
     sections: list[RawSectionSearchResult]
     total_tokens: int
     has_meaningful_overlap: bool
+    strongest_score: float
 
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
@@ -63,6 +64,10 @@ def select_raw_evidence(
         has_meaningful_overlap=_has_meaningful_overlap(
             query=query,
             sections=selected_sections,
+        ),
+        strongest_score=min(
+            (section.score for section in selected_sections),
+            default=0.0,
         ),
     )
 

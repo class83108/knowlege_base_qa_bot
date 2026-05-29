@@ -57,6 +57,7 @@ def test_chat_service_uses_generator_for_grounded_answer() -> None:
                 citation="refund_policy.md#refund-timeline",
                 token_count=7,
                 block_types_present=["paragraph"],
+                score=-0.5,
             )
         ],
     )
@@ -94,6 +95,7 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
                 citation="refund_policy.md#refund-timeline",
                 token_count=7,
                 block_types_present=["paragraph"],
+                score=-0.5,
             )
         ],
         card_results=[
@@ -102,6 +104,7 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
                 summary="Refunds are processed within 5 business days.",
                 key_points=["Refunds take 5 business days."],
                 raw_sources=["refund_policy.md#refund-timeline"],
+                score=-0.5,
             )
         ],
     )
@@ -135,6 +138,7 @@ def test_chat_service_can_use_generator_fallback_answer() -> None:
                 citation="refund_policy.md#refund-timeline",
                 token_count=7,
                 block_types_present=["paragraph"],
+                score=-0.5,
             )
         ],
     )
@@ -151,3 +155,132 @@ def test_chat_service_can_use_generator_fallback_answer() -> None:
 
     assert response["status"] == "cannot_confirm"
     assert response["answer"] == "I cannot confirm the answer from the knowledge base."
+
+
+def test_chat_service_falls_back_to_raw_when_card_has_no_raw_support() -> None:
+    from app.db.raw_index_repository import ConceptCardSearchResult
+
+    repository = FakeRepository(
+        indexed=True,
+        results=[
+            RawSectionSearchResult(
+                document_path="docs/refund_policy.md",
+                heading="Refund Timeline",
+                heading_path="Refund Policy > Refund Timeline",
+                chunk_index=0,
+                content="Refunds are processed within 5 business days.",
+                citation="refund_policy.md#refund-timeline",
+                token_count=7,
+                block_types_present=["paragraph"],
+                score=-0.5,
+            )
+        ],
+        card_results=[
+            ConceptCardSearchResult(
+                title="Refund Timeline",
+                summary="Refunds are processed within 5 business days.",
+                key_points=["Refunds take 5 business days."],
+                raw_sources=["missing.md#refund-timeline"],
+                score=-0.5,
+            )
+        ],
+    )
+    generator = FakeGenerator(
+        '{"status":"ok","answer":"Refunds take 5 business days.","citations":["refund_policy.md#refund-timeline"]}'
+    )
+    service = ChatService(
+        database_path=Path("/tmp/not-used.db"),
+        repository=repository,
+        answer_generator=generator,
+    )
+
+    response = service.answer("How long do refunds take?")
+
+    assert response["status"] == "ok"
+    assert response["retrieval_mode"] == "raw"
+    assert response["used_cards"] == []
+
+
+def test_chat_service_falls_back_to_raw_when_card_support_is_weak() -> None:
+    from app.db.raw_index_repository import ConceptCardSearchResult
+
+    repository = FakeRepository(
+        indexed=True,
+        results=[
+            RawSectionSearchResult(
+                document_path="docs/refund_policy.md",
+                heading="Refund Timeline",
+                heading_path="Refund Policy > Refund Timeline",
+                chunk_index=0,
+                content="Refunds are processed within 5 business days.",
+                citation="refund_policy.md#refund-timeline",
+                token_count=7,
+                block_types_present=["paragraph"],
+                score=-0.5,
+            )
+        ],
+        card_results=[
+            ConceptCardSearchResult(
+                title="Refund Timeline",
+                summary="Refunds are processed within 5 business days.",
+                key_points=["Refunds take 5 business days."],
+                raw_sources=["refund_policy.md#refund-timeline"],
+                score=-0.5,
+            )
+        ],
+    )
+    generator = FakeGenerator(
+        '{"status":"ok","answer":"Refunds take 5 business days.","citations":["refund_policy.md#refund-timeline"]}'
+    )
+    service = ChatService(
+        database_path=Path("/tmp/not-used.db"),
+        repository=repository,
+        answer_generator=generator,
+    )
+
+    response = service.answer("Which restaurants are nearby?")
+
+    assert response["status"] == "cannot_confirm"
+    assert response["retrieval_mode"] == "none"
+
+
+def test_chat_service_falls_back_to_raw_when_card_score_is_too_weak() -> None:
+    from app.db.raw_index_repository import ConceptCardSearchResult
+
+    repository = FakeRepository(
+        indexed=True,
+        results=[
+            RawSectionSearchResult(
+                document_path="docs/refund_policy.md",
+                heading="Refund Timeline",
+                heading_path="Refund Policy > Refund Timeline",
+                chunk_index=0,
+                content="The refund timeline is 5 business days.",
+                citation="refund_policy.md#refund-timeline",
+                token_count=7,
+                block_types_present=["paragraph"],
+                score=-0.01,
+            )
+        ],
+        card_results=[
+            ConceptCardSearchResult(
+                title="Refund Timeline",
+                summary="Refunds are processed within 5 business days.",
+                key_points=["Refunds take 5 business days."],
+                raw_sources=["refund_policy.md#refund-timeline"],
+                score=-0.0000001,
+            )
+        ],
+    )
+    generator = FakeGenerator(
+        '{"status":"ok","answer":"Refunds take 5 business days.","citations":["refund_policy.md#refund-timeline"]}'
+    )
+    service = ChatService(
+        database_path=Path("/tmp/not-used.db"),
+        repository=repository,
+        answer_generator=generator,
+    )
+
+    response = service.answer("What is the refund timeline?")
+
+    assert response["retrieval_mode"] == "raw"

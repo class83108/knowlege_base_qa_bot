@@ -103,3 +103,5 @@ def test_post_chat_logs_query_record(tmp_path: Path) -> None:
     assert len(records) == 1
     assert records[0].status == "ok"
     assert records[0].retrieval_mode == "cards_plus_raw"
+    assert records[0].top_card_score is not None
+    assert records[0].top_raw_score is not None
