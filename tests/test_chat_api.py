@@ -46,7 +46,7 @@ def test_post_chat_returns_grounded_raw_answer_after_indexing(tmp_path: Path) ->
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["retrieval_mode"] == "cards_plus_raw"
+    assert response.json()["retrieval_mode"] == "cards"
     assert "5 business days" in response.json()["answer"]
     assert response.json()["used_cards"] == ["Refund Timeline"]
     assert response.json()["citations"] == ["refund_policy.md#refund-timeline"]
@@ -102,6 +102,6 @@ def test_post_chat_logs_query_record(tmp_path: Path) -> None:
 
     assert len(records) == 1
     assert records[0].status == "ok"
-    assert records[0].retrieval_mode == "cards_plus_raw"
+    assert records[0].retrieval_mode == "cards"
     assert records[0].top_card_score is not None
     assert records[0].top_raw_score is not None

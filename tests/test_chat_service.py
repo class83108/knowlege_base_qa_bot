@@ -120,7 +120,7 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
     response = service.answer("How long do refunds take?")
 
     assert response["status"] == "ok"
-    assert response["retrieval_mode"] == "cards_plus_raw"
+    assert response["retrieval_mode"] == "cards"
     assert response["used_cards"] == ["Refund Timeline"]
     assert response["used_raw_sections"] == ["refund_policy.md#refund-timeline"]
 

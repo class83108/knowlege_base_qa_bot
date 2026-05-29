@@ -46,7 +46,7 @@ def test_get_query_records_returns_logged_queries(tmp_path: Path) -> None:
     assert len(records) == 1
     assert records[0]["query_text"] == "How long do refunds take?"
     assert records[0]["status"] == "ok"
-    assert records[0]["retrieval_mode"] == "cards_plus_raw"
+    assert records[0]["retrieval_mode"] == "cards"
 
 
 def test_get_query_records_includes_scores(tmp_path: Path) -> None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 from app.db.raw_index_repository import (
     ConceptCardSearchResult,
@@ -11,14 +10,16 @@ from app.db.raw_index_repository import (
 )
 from app.domain.prompt_builder import build_grounded_answer_prompt
 from app.domain.raw_evidence_selector import select_raw_evidence
+from app.domain.retrieval_policy import (
+    filter_supported_cards,
+    is_card_evidence_sufficient,
+    is_raw_evidence_sufficient,
+)
 from app.services.answer_generation import (
     AnswerGenerator,
     EchoEvidenceGenerator,
     parse_grounded_answer_response,
 )
-
-MIN_CARD_SCORE = -1e-6
-MIN_RAW_SCORE = -1e-7
 
 
 class ChatService:
@@ -50,92 +51,44 @@ class ChatService:
         card_results = self._repository.search_concept_cards(query, limit=3)
         top_card_score = card_results[0].score if card_results else None
         top_raw_score = raw_results[0].score if raw_results else None
+
         if card_results:
-            supported_cards = [
-                card
-                for card in card_results
-                if card.score <= MIN_CARD_SCORE and _card_matches_query(query, card)
-            ]
+            supported_cards = filter_supported_cards(query, card_results)
             raw_sources = _deduplicate_citations(
-                citation
-                for card in supported_cards
-                for citation in card.raw_sources
+                citation for card in supported_cards for citation in card.raw_sources
             )
-            raw_sections = _select_card_support_sections(
+            card_sections = _select_card_support_sections(
                 citations=raw_sources,
                 ranked_results=raw_results,
                 repository=self._repository,
             )
-            if raw_sections:
+            if card_sections:
                 card_evidence = select_raw_evidence(
                     query=query,
-                    results=raw_sections,
+                    results=card_sections,
                     max_sections=3,
                     max_total_tokens=200,
                 )
-                if (
-                    card_evidence.sections
-                    and card_evidence.strongest_score <= MIN_RAW_SCORE
-                    and _cards_have_meaningful_support(
-                        query=query,
-                        cards=supported_cards,
-                        sections=card_evidence.sections,
-                    )
+                if is_card_evidence_sufficient(
+                    query=query,
+                    supported_cards=supported_cards,
+                    evidence=card_evidence,
                 ):
-                    prompt = build_grounded_answer_prompt(
+                    return self._build_card_response(
                         query=query,
-                        sections=card_evidence.sections,
-                    )
-                    grounded_answer = parse_grounded_answer_response(
-                        self._answer_generator.generate(prompt)
-                    )
-                    allowed_citations = [
-                        section.citation for section in card_evidence.sections
-                    ]
-                    response_citations = [
-                        citation
-                        for citation in grounded_answer.citations
-                        if citation in allowed_citations
-                    ]
-                    response = {
-                        "status": grounded_answer.status,
-                        "retrieval_mode": (
-                            "cards_plus_raw"
-                            if grounded_answer.status == "ok"
-                            else "none"
-                        ),
-                        "answer": grounded_answer.answer,
-                        "citations": response_citations,
-                        "used_cards": (
-                            _used_card_titles(
-                                cards=supported_cards,
-                                citations=response_citations,
-                            )
-                            if grounded_answer.status == "ok"
-                            else []
-                        ),
-                        "used_raw_sections": (
-                            response_citations
-                            if grounded_answer.status == "ok"
-                            else []
-                        ),
-                        "message": "Answer generated from concept card retrieval with raw support.",
-                    }
-                    self._log_query(
-                        query,
-                        response,
+                        supported_cards=supported_cards,
+                        card_evidence_sections=card_evidence.sections,
                         top_card_score=top_card_score,
-                        top_raw_score=card_evidence.strongest_score,
+                        strongest_evidence_score=card_evidence.strongest_score,
                     )
-                    return response
 
-        evidence = select_raw_evidence(
+        raw_evidence = select_raw_evidence(
             query=query,
             results=raw_results,
             max_sections=3,
             max_total_tokens=200,
         )
-        if not evidence.sections:
+        if not is_raw_evidence_sufficient(raw_evidence):
             response = {
                 "status": "cannot_confirm",
                 "retrieval_mode": "none",
@@ -145,61 +98,65 @@ class ChatService:
                 "used_raw_sections": [],
                 "message": "No sufficiently supported answer was found.",
             }
-            self._log_query(
-                query,
-                response,
-                top_card_score=top_card_score,
-                top_raw_score=top_raw_score,
-            )
+            self._log_query(query, response, top_card_score=top_card_score, top_raw_score=top_raw_score)
             return response
 
-        if (
-            not evidence.has_meaningful_overlap
-            or evidence.strongest_score > MIN_RAW_SCORE
-        ):
-            response = {
-                "status": "cannot_confirm",
-                "retrieval_mode": "none",
-                "answer": "I cannot confirm the answer from the knowledge base.",
-                "citations": [],
-                "used_cards": [],
-                "used_raw_sections": [],
-                "message": "No sufficiently supported answer was found.",
-            }
-            self._log_query(
-                query,
-                response,
-                top_card_score=top_card_score,
-                top_raw_score=top_raw_score,
-            )
-            return response
-        citations = [section.citation for section in evidence.sections]
-        prompt = build_grounded_answer_prompt(
+        return self._build_raw_response(
             query=query,
-            sections=evidence.sections,
+            raw_evidence_sections=raw_evidence.sections,
+            top_card_score=top_card_score,
+            strongest_evidence_score=raw_evidence.strongest_score,
         )
-        grounded_answer = parse_grounded_answer_response(
-            self._answer_generator.generate(prompt)
-        )
-        response_status = grounded_answer.status
-        response_citations = [
-            citation for citation in grounded_answer.citations if citation in citations
-        ]
+
+    def _build_card_response(
+        self,
+        *,
+        query: str,
+        supported_cards: list[ConceptCardSearchResult],
+        card_evidence_sections: list[RawSectionSearchResult],
+        top_card_score: float | None,
+        strongest_evidence_score: float,
+    ) -> dict:
+        prompt = build_grounded_answer_prompt(query=query, sections=card_evidence_sections)
+        grounded_answer = parse_grounded_answer_response(self._answer_generator.generate(prompt))
+        allowed_citations = {section.citation for section in card_evidence_sections}
+        response_citations = [c for c in grounded_answer.citations if c in allowed_citations]
+        ok = grounded_answer.status == "ok"
         response = {
-            "status": response_status,
-            "retrieval_mode": "raw" if response_status == "ok" else "none",
+            "status": grounded_answer.status,
+            "retrieval_mode": "cards" if ok else "none",
+            "answer": grounded_answer.answer,
+            "citations": response_citations,
+            "used_cards": _used_card_titles(cards=supported_cards, citations=response_citations) if ok else [],
+            "used_raw_sections": response_citations if ok else [],
+            "message": "Answer generated from concept card retrieval with raw support.",
+        }
+        self._log_query(query, response, top_card_score=top_card_score, top_raw_score=strongest_evidence_score)
+        return response
+
+    def _build_raw_response(
+        self,
+        *,
+        query: str,
+        raw_evidence_sections: list[RawSectionSearchResult],
+        top_card_score: float | None,
+        strongest_evidence_score: float,
+    ) -> dict:
+        citations = [section.citation for section in raw_evidence_sections]
+        prompt = build_grounded_answer_prompt(query=query, sections=raw_evidence_sections)
+        grounded_answer = parse_grounded_answer_response(self._answer_generator.generate(prompt))
+        ok = grounded_answer.status == "ok"
+        response_citations = [c for c in grounded_answer.citations if c in citations] if ok else []
+        response = {
+            "status": grounded_answer.status,
+            "retrieval_mode": "raw" if ok else "none",
             "answer": grounded_answer.answer,
             "citations": response_citations,
             "used_cards": [],
-            "used_raw_sections": response_citations if response_status == "ok" else [],
+            "used_raw_sections": response_citations,
             "message": "Answer generated from raw section retrieval.",
         }
-        self._log_query(
-            query,
-            response,
-            top_card_score=top_card_score,
-            top_raw_score=evidence.strongest_score,
-        )
+        self._log_query(query, response, top_card_score=top_card_score, top_raw_score=strongest_evidence_score)
         return response
 
     def _log_query(
@@ -225,61 +182,6 @@ class ChatService:
         )
 
 
-TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
-STOPWORDS = {
-    "a",
-    "an",
-    "are",
-    "do",
-    "does",
-    "how",
-    "i",
-    "is",
-    "long",
-    "of",
-    "take",
-    "the",
-    "to",
-    "what",
-    "which",
-}
-def _cards_have_meaningful_support(
-    *,
-    query: str,
-    cards: list[ConceptCardSearchResult],
-    sections: list[RawSectionSearchResult],
-) -> bool:
-    query_terms = {
-        term for term in TOKEN_PATTERN.findall(query.lower()) if term not in STOPWORDS
-    }
-    if not query_terms:
-        return False
-
-    support_terms = set()
-    for card in cards:
-        support_terms.update(TOKEN_PATTERN.findall(card.title.lower()))
-        support_terms.update(TOKEN_PATTERN.findall(card.summary.lower()))
-        for point in card.key_points:
-            support_terms.update(TOKEN_PATTERN.findall(point.lower()))
-    for section in sections:
-        support_terms.update(TOKEN_PATTERN.findall(section.content.lower()))
-    return bool(query_terms & support_terms)
-
-
-def _card_matches_query(query: str, card: ConceptCardSearchResult) -> bool:
-    query_terms = {
-        term for term in TOKEN_PATTERN.findall(query.lower()) if term not in STOPWORDS
-    }
-    if not query_terms:
-        return False
-
-    card_terms = set(TOKEN_PATTERN.findall(card.title.lower()))
-    card_terms.update(TOKEN_PATTERN.findall(card.summary.lower()))
-    for point in card.key_points:
-        card_terms.update(TOKEN_PATTERN.findall(point.lower()))
-    return query_terms.issubset(card_terms)
-
-
 def _deduplicate_citations(citations) -> list[str]:
     return list(dict.fromkeys(citations))
 
@@ -293,12 +195,10 @@ def _select_card_support_sections(
     ranked_by_citation = {
         section.citation: section for section in ranked_results if section.citation in citations
     }
-    missing_citations = [
-        citation for citation in citations if citation not in ranked_by_citation
-    ]
-    fallback_sections = repository.get_raw_sections_by_citations(missing_citations)
+    missing_citations = [c for c in citations if c not in ranked_by_citation]
     fallback_by_citation = {
-        section.citation: section for section in fallback_sections
+        section.citation: section
+        for section in repository.get_raw_sections_by_citations(missing_citations)
     }
     return [
         ranked_by_citation.get(citation) or fallback_by_citation[citation]
@@ -313,8 +213,4 @@ def _used_card_titles(
     citations: list[str],
 ) -> list[str]:
     citation_set = set(citations)
-    return [
-        card.title
-        for card in cards
-        if citation_set.intersection(card.raw_sources)
-    ]
+    return [card.title for card in cards if citation_set.intersection(card.raw_sources)]
