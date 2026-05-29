@@ -279,11 +279,11 @@ class RawIndexRepository:
                     rs.citation,
                     rs.token_count,
                     rs.block_types_present,
-                    bm25(raw_section_fts) AS score
+                    bm25(raw_section_fts, 10, 5, 1, 1) AS score
                 FROM raw_section_fts fts
                 JOIN raw_section rs ON rs.section_id = fts.rowid
                 WHERE raw_section_fts MATCH ? AND rs.is_active = 1
-                ORDER BY bm25(raw_section_fts)
+                ORDER BY bm25(raw_section_fts, 10, 5, 1, 1)
                 LIMIT ?
                 """,
                 (normalized_query, limit),
@@ -588,11 +588,11 @@ class RawIndexRepository:
                     cc.summary,
                     cc.key_points,
                     cc.raw_sources,
-                    bm25(concept_card_fts) AS score
+                    bm25(concept_card_fts, 10, 5, 2) AS score
                 FROM concept_card_fts fts
                 JOIN concept_card cc ON cc.card_id = fts.rowid
                 WHERE concept_card_fts MATCH ? AND cc.is_active = 1
-                ORDER BY bm25(concept_card_fts)
+                ORDER BY bm25(concept_card_fts, 10, 5, 2)
                 LIMIT ?
                 """,
                 (normalized_query, limit),

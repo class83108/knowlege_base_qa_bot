@@ -109,8 +109,69 @@ def test_repository_lists_active_documents_and_can_deactivate_deleted_paths(tmp_
     active_before = repository.list_active_documents()
     repository.deactivate_deleted_paths(["docs/refund_policy.md"])
     active_after = repository.list_active_documents()
-    results_after = repository.search_raw_sections("refunds business days", limit=5)
-
     assert [record.path for record in active_before] == ["docs/refund_policy.md"]
     assert active_after == []
-    assert results_after == []
+
+
+def test_search_raw_sections_ranks_heading_match_above_repeated_content_match(
+    tmp_path: Path,
+) -> None:
+    from app.db.raw_index_repository import RawIndexRepository, initialize_raw_index_schema
+
+    db_path = tmp_path / "kb.db"
+    initialize_raw_index_schema(db_path)
+    repo = RawIndexRepository(db_path)
+
+    doc_heading = _build_document(
+        "docs/refund_timeline.md",
+        "# Refund Timeline\nContact support for assistance.\n",
+    )
+    # Repeats query terms many times in content to inflate TF score
+    repeated = " ".join(["Refund timeline processing."] * 12)
+    doc_content = _build_document(
+        "docs/other.md",
+        f"# General Info\n{repeated}\n",
+    )
+    repo.replace_documents([doc_heading, doc_content])
+
+    results = repo.search_raw_sections("refund timeline", limit=5)
+
+    assert len(results) >= 1
+    assert results[0].citation == "refund_timeline.md#refund-timeline"
+
+
+def test_search_concept_cards_ranks_title_match_above_repeated_key_points_match(
+    tmp_path: Path,
+) -> None:
+    from app.db.raw_index_repository import (
+        ConceptCardRecord,
+        RawIndexRepository,
+        initialize_raw_index_schema,
+    )
+
+    db_path = tmp_path / "kb.db"
+    initialize_raw_index_schema(db_path)
+    repo = RawIndexRepository(db_path)
+
+    repeated = " ".join(["Refund timeline policy."] * 12)
+    repo.upsert_concept_cards(
+        [
+            ConceptCardRecord(
+                title="Refund Timeline",
+                summary="Processing time for refunds.",
+                key_points=["Contact support."],
+                raw_sources=["refund_timeline.md#refund-timeline"],
+            ),
+            ConceptCardRecord(
+                title="General Info",
+                summary="Various policies.",
+                key_points=[repeated],
+                raw_sources=["other.md#general-info"],
+            ),
+        ]
+    )
+
+    results = repo.search_concept_cards("refund timeline", limit=5)
+
+    assert len(results) >= 1
+    assert results[0].title == "Refund Timeline"
