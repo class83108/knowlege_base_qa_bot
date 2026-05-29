@@ -16,6 +16,12 @@ class ReplaceDocumentsSummary:
 
 
 @dataclass(frozen=True)
+class UpsertConceptCardsSummary:
+    created: int
+    updated: int
+
+
+@dataclass(frozen=True)
 class RawSectionSearchResult:
     document_path: str
     heading: str
@@ -445,7 +451,9 @@ class RawIndexRepository:
         finally:
             connection.close()
 
-    def upsert_concept_cards(self, cards: list[ConceptCardRecord]) -> None:
+    def upsert_concept_cards(self, cards: list[ConceptCardRecord]) -> UpsertConceptCardsSummary:
+        created = 0
+        updated = 0
         connection = sqlite3.connect(self._database_path)
         try:
             with connection:
@@ -455,6 +463,7 @@ class RawIndexRepository:
                         (card.title,),
                     ).fetchone()
                     if existing_row is not None:
+                        updated += 1
                         card_id = int(existing_row[0])
                         connection.execute(
                             """
@@ -478,6 +487,7 @@ class RawIndexRepository:
                             (card_id,),
                         )
                     else:
+                        created += 1
                         cursor = connection.execute(
                             """
                             INSERT INTO concept_card (
@@ -518,6 +528,7 @@ class RawIndexRepository:
                     )
         finally:
             connection.close()
+        return UpsertConceptCardsSummary(created=created, updated=updated)
 
     def replace_concept_cards(self, cards: list[ConceptCardRecord]) -> None:
         desired_titles = {card.title for card in cards}

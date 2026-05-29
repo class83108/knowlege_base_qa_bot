@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.db.raw_index_repository import RawIndexRepository, initialize_raw_index_schema
+from app.db.raw_index_repository import (
+    RawIndexRepository,
+    UpsertConceptCardsSummary,
+    initialize_raw_index_schema,
+)
 from app.domain.concept_card_builder import CardGenerator
 from app.domain.concept_card_maintenance import maintain_concept_cards
 from app.domain.indexing_plan import (
@@ -50,8 +54,9 @@ class IndexingService:
         documents_to_replace = plan.new_documents + plan.changed_documents
         current_documents = plan.unchanged_documents + plan.new_documents + plan.changed_documents
         summary = repository.replace_documents(documents_to_replace)
+        card_summary = UpsertConceptCardsSummary(created=0, updated=0)
         if documents_to_replace:
-            repository.upsert_concept_cards(
+            card_summary = repository.upsert_concept_cards(
                 maintain_concept_cards(
                     documents_to_replace,
                     search_cards=lambda q, n: repository.search_concept_cards(q, limit=n),
@@ -65,6 +70,8 @@ class IndexingService:
             "status": "ok",
             "files_indexed": summary.files_indexed,
             "raw_sections_indexed": summary.raw_sections_indexed,
+            "concept_cards_created": card_summary.created,
+            "concept_cards_updated": card_summary.updated,
             "unchanged_documents": len(plan.unchanged_documents),
             "deleted_documents": len(plan.deleted_paths),
             "message": "Index rebuilt successfully.",
