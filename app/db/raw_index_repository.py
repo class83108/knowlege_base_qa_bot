@@ -4,6 +4,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from app.domain.markdown_parser import ParsedDocument
 
@@ -24,6 +25,17 @@ class RawSectionSearchResult:
     citation: str
     token_count: int
     block_types_present: list[str]
+
+
+@dataclass(frozen=True)
+class QueryRecord:
+    query_text: str
+    status: str
+    retrieval_mode: str
+    answer: str
+    citations: list[str]
+    used_cards: list[str]
+    used_raw_sections: list[str]
 
 
 def initialize_raw_index_schema(database_path: Path) -> None:
@@ -67,6 +79,18 @@ def initialize_raw_index_schema(database_path: Path) -> None:
                 content,
                 citation,
                 section_id UNINDEXED
+            );
+
+            CREATE TABLE IF NOT EXISTS query_record (
+                query_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_text TEXT NOT NULL,
+                status TEXT NOT NULL,
+                retrieval_mode TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                citations TEXT NOT NULL,
+                used_cards TEXT NOT NULL,
+                used_raw_sections TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """
         )
@@ -180,6 +204,9 @@ class RawIndexRepository:
             connection.close()
 
     def search_raw_sections(self, query: str, *, limit: int) -> list[RawSectionSearchResult]:
+        normalized_query = _normalize_fts_query(query)
+        if not normalized_query:
+            return []
         connection = sqlite3.connect(self._database_path)
         connection.row_factory = sqlite3.Row
         try:
@@ -200,7 +227,7 @@ class RawIndexRepository:
                 ORDER BY bm25(raw_section_fts)
                 LIMIT ?
                 """,
-                (query, limit),
+                (normalized_query, limit),
             ).fetchall()
             return [
                 RawSectionSearchResult(
@@ -217,3 +244,110 @@ class RawIndexRepository:
             ]
         finally:
             connection.close()
+
+    def has_active_index(self) -> bool:
+        if not self._database_path.exists():
+            return False
+        connection = sqlite3.connect(self._database_path)
+        try:
+            row = connection.execute(
+                "SELECT 1 FROM raw_section WHERE is_active = 1 LIMIT 1"
+            ).fetchone()
+            return row is not None
+        finally:
+            connection.close()
+
+    def log_query_record(self, record: QueryRecord) -> None:
+        if not self._database_path.exists():
+            initialize_raw_index_schema(self._database_path)
+        connection = sqlite3.connect(self._database_path)
+        try:
+            with connection:
+                connection.execute(
+                    """
+                    INSERT INTO query_record (
+                        query_text,
+                        status,
+                        retrieval_mode,
+                        answer,
+                        citations,
+                        used_cards,
+                        used_raw_sections
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.query_text,
+                        record.status,
+                        record.retrieval_mode,
+                        record.answer,
+                        json.dumps(record.citations),
+                        json.dumps(record.used_cards),
+                        json.dumps(record.used_raw_sections),
+                    ),
+                )
+        finally:
+            connection.close()
+
+    def list_query_records(self) -> list[QueryRecord]:
+        connection = sqlite3.connect(self._database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute(
+                """
+                SELECT
+                    query_text,
+                    status,
+                    retrieval_mode,
+                    answer,
+                    citations,
+                    used_cards,
+                    used_raw_sections
+                FROM query_record
+                ORDER BY query_id ASC
+                """
+            ).fetchall()
+            return [
+                QueryRecord(
+                    query_text=row["query_text"],
+                    status=row["status"],
+                    retrieval_mode=row["retrieval_mode"],
+                    answer=row["answer"],
+                    citations=json.loads(row["citations"]),
+                    used_cards=json.loads(row["used_cards"]),
+                    used_raw_sections=json.loads(row["used_raw_sections"]),
+                )
+                for row in rows
+            ]
+        finally:
+            connection.close()
+
+
+TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
+STOPWORDS = {
+    "a",
+    "an",
+    "are",
+    "do",
+    "does",
+    "how",
+    "i",
+    "is",
+    "long",
+    "of",
+    "take",
+    "the",
+    "to",
+    "what",
+    "which",
+}
+
+
+def _normalize_fts_query(query: str) -> str:
+    terms = [
+        term
+        for term in TOKEN_PATTERN.findall(query.lower())
+        if term not in STOPWORDS
+    ]
+    if not terms:
+        return ""
+    return " AND ".join(dict.fromkeys(terms))
