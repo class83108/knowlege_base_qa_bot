@@ -3,12 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.db.raw_index_repository import QueryRecord, RawIndexRepository
+from app.domain.prompt_builder import build_grounded_answer_prompt
 from app.domain.raw_evidence_selector import select_raw_evidence
+from app.services.answer_generation import (
+    AnswerGenerator,
+    EchoEvidenceGenerator,
+    parse_grounded_answer_response,
+)
 
 
 class ChatService:
-    def __init__(self, *, database_path: Path) -> None:
-        self._repository = RawIndexRepository(database_path)
+    def __init__(
+        self,
+        *,
+        database_path: Path,
+        repository: RawIndexRepository | None = None,
+        answer_generator: AnswerGenerator | None = None,
+    ) -> None:
+        self._repository = repository or RawIndexRepository(database_path)
+        self._answer_generator = answer_generator or EchoEvidenceGenerator()
 
     def answer(self, query: str) -> dict:
         if not self._repository.has_active_index():
@@ -57,13 +70,24 @@ class ChatService:
             self._log_query(query, response)
             return response
         citations = [section.citation for section in evidence.sections]
+        prompt = build_grounded_answer_prompt(
+            query=query,
+            sections=evidence.sections,
+        )
+        grounded_answer = parse_grounded_answer_response(
+            self._answer_generator.generate(prompt)
+        )
+        response_status = grounded_answer.status
+        response_citations = [
+            citation for citation in grounded_answer.citations if citation in citations
+        ]
         response = {
-            "status": "ok",
-            "retrieval_mode": "raw",
-            "answer": _build_raw_answer(evidence.sections),
-            "citations": citations,
+            "status": response_status,
+            "retrieval_mode": "raw" if response_status == "ok" else "none",
+            "answer": grounded_answer.answer,
+            "citations": response_citations,
             "used_cards": [],
-            "used_raw_sections": citations,
+            "used_raw_sections": response_citations if response_status == "ok" else [],
             "message": "Answer generated from raw section retrieval.",
         }
         self._log_query(query, response)
@@ -81,7 +105,3 @@ class ChatService:
                 used_raw_sections=response["used_raw_sections"],
             )
         )
-
-
-def _build_raw_answer(sections) -> str:
-    return "\n\n".join(section.content for section in sections)

@@ -37,7 +37,10 @@ def test_post_chat_returns_grounded_raw_answer_after_indexing(tmp_path: Path) ->
     client = TestClient(app)
     client.post("/index")
 
-    response = client.post("/chat", json={"query": "How long do refunds take?"})
+    response = client.post(
+        "/chat",
+        json={"query": "What is the refund timeline and who is eligible for refunds?"},
+    )
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,8 @@ class Settings(BaseSettings):
     docs_dir: Path = Field(default=Path("docs"))
     kb_dir: Path = Field(default=Path(".kb"))
     sqlite_path: Path = Field(default=Path(".kb/knowledge_base.db"))
+    openai_api_key: Optional[str] = Field(default=None)
+    openai_model: str = Field(default="gpt-5.4-mini")
 
 
 @lru_cache

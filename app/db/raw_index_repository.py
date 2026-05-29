@@ -350,4 +350,16 @@ def _normalize_fts_query(query: str) -> str:
     ]
     if not terms:
         return ""
-    return " AND ".join(dict.fromkeys(terms))
+    unique_terms = list(dict.fromkeys(terms))
+    numeric_terms = [term for term in unique_terms if term.isdigit()]
+    lexical_terms = [term for term in unique_terms if not term.isdigit()]
+
+    clauses: list[str] = []
+    if numeric_terms:
+        clauses.extend(numeric_terms)
+    if lexical_terms:
+        lexical_clause = " OR ".join(lexical_terms)
+        if len(lexical_terms) > 1:
+            lexical_clause = f"({lexical_clause})"
+        clauses.append(lexical_clause)
+    return " AND ".join(clauses)
