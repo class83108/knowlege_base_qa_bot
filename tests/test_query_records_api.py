@@ -74,3 +74,6 @@ def test_get_query_records_includes_scores(tmp_path: Path) -> None:
     assert "top_raw_score" in records[0]
     assert records[0]["top_card_score"] is not None
     assert records[0]["top_raw_score"] is not None
+    assert "decision_reason" in records[0]
+    assert "candidate_cards" in records[0]
+    assert "raw_evidence_sections" in records[0]

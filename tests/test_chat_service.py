@@ -123,6 +123,9 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
     assert response["retrieval_mode"] == "cards"
     assert response["used_cards"] == ["Refund Timeline"]
     assert response["used_raw_sections"] == ["refund_policy.md#refund-timeline"]
+    assert repository.logged[0].decision_reason == "card_evidence_sufficient"
+    assert repository.logged[0].candidate_cards == ["Refund Timeline"]
+    assert repository.logged[0].supported_cards == ["Refund Timeline"]
 
 
 def test_chat_service_can_use_generator_fallback_answer() -> None:
@@ -199,6 +202,8 @@ def test_chat_service_falls_back_to_raw_when_card_has_no_raw_support() -> None:
     assert response["status"] == "ok"
     assert response["retrieval_mode"] == "raw"
     assert response["used_cards"] == []
+    assert repository.logged[0].decision_reason == "raw_evidence_sufficient"
+    assert repository.logged[0].raw_evidence_sections == ["refund_policy.md#refund-timeline"]
 
 
 def test_chat_service_falls_back_to_raw_when_card_support_is_weak() -> None:
@@ -242,6 +247,7 @@ def test_chat_service_falls_back_to_raw_when_card_support_is_weak() -> None:
 
     assert response["status"] == "cannot_confirm"
     assert response["retrieval_mode"] == "none"
+    assert repository.logged[0].decision_reason == "raw_evidence_insufficient"
 
 
 def test_chat_service_falls_back_to_raw_when_card_score_is_too_weak() -> None:

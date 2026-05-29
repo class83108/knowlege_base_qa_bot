@@ -44,29 +44,37 @@ class ChatService:
                 "used_raw_sections": [],
                 "message": "The knowledge base has not been indexed yet.",
             }
-            self._log_query(query, response)
+            self._log_query(
+                query,
+                response,
+                decision_reason="not_indexed",
+            )
             return response
 
         raw_results = self._repository.search_raw_sections(query, limit=5)
         card_results = self._repository.search_concept_cards(query, limit=3)
         top_card_score = card_results[0].score if card_results else None
         top_raw_score = raw_results[0].score if raw_results else None
+        candidate_cards = [card.title for card in card_results]
+        raw_candidate_sections = [section.citation for section in raw_results]
 
         contributing_cards: list[ConceptCardSearchResult] = []
+        supported_cards: list[ConceptCardSearchResult] = []
+        card_support_sections: list[RawSectionSearchResult] = []
         if card_results:
             supported_cards = filter_supported_cards(query, card_results)
             raw_sources = _deduplicate_citations(
                 citation for card in supported_cards for citation in card.raw_sources
             )
-            card_sections = _select_card_support_sections(
+            card_support_sections = _select_card_support_sections(
                 citations=raw_sources,
                 ranked_results=raw_results,
                 repository=self._repository,
             )
-            if card_sections:
+            if card_support_sections:
                 card_evidence = select_raw_evidence(
                     query=query,
-                    results=card_sections,
+                    results=card_support_sections,
                     max_sections=3,
                     max_total_tokens=200,
                 )
@@ -81,6 +89,11 @@ class ChatService:
                         card_evidence_sections=card_evidence.sections,
                         top_card_score=top_card_score,
                         strongest_evidence_score=card_evidence.strongest_score,
+                        decision_reason="card_evidence_sufficient",
+                        candidate_cards=candidate_cards,
+                        supported_card_titles=[card.title for card in supported_cards],
+                        card_support_sections=[section.citation for section in card_support_sections],
+                        raw_candidate_sections=raw_candidate_sections,
                     )
                 contributing_cards = supported_cards
 
@@ -100,7 +113,18 @@ class ChatService:
                 "used_raw_sections": [],
                 "message": "No sufficiently supported answer was found.",
             }
-            self._log_query(query, response, top_card_score=top_card_score, top_raw_score=top_raw_score)
+            self._log_query(
+                query,
+                response,
+                top_card_score=top_card_score,
+                top_raw_score=top_raw_score,
+                decision_reason="raw_evidence_insufficient",
+                candidate_cards=candidate_cards,
+                supported_cards=[card.title for card in supported_cards],
+                card_support_sections=[section.citation for section in card_support_sections],
+                raw_candidate_sections=raw_candidate_sections,
+                raw_evidence_sections=[section.citation for section in raw_evidence.sections],
+            )
             return response
 
         return self._build_raw_response(
@@ -109,6 +133,15 @@ class ChatService:
             supported_cards=contributing_cards,
             top_card_score=top_card_score,
             strongest_evidence_score=raw_evidence.strongest_score,
+            decision_reason=(
+                "raw_evidence_sufficient_after_card_fallback"
+                if contributing_cards
+                else "raw_evidence_sufficient"
+            ),
+            candidate_cards=candidate_cards,
+            supported_card_titles=[card.title for card in supported_cards],
+            card_support_sections=[section.citation for section in card_support_sections],
+            raw_candidate_sections=raw_candidate_sections,
         )
 
     def _build_card_response(
@@ -119,6 +152,11 @@ class ChatService:
         card_evidence_sections: list[RawSectionSearchResult],
         top_card_score: float | None,
         strongest_evidence_score: float,
+        decision_reason: str,
+        candidate_cards: list[str],
+        supported_card_titles: list[str],
+        card_support_sections: list[str],
+        raw_candidate_sections: list[str],
     ) -> dict:
         prompt = build_grounded_answer_prompt(query=query, sections=card_evidence_sections)
         grounded_answer = parse_grounded_answer_response(self._answer_generator.generate(prompt))
@@ -134,7 +172,18 @@ class ChatService:
             "used_raw_sections": response_citations if ok else [],
             "message": "Answer generated from concept card retrieval with raw support.",
         }
-        self._log_query(query, response, top_card_score=top_card_score, top_raw_score=strongest_evidence_score)
+        self._log_query(
+            query,
+            response,
+            top_card_score=top_card_score,
+            top_raw_score=strongest_evidence_score,
+            decision_reason=decision_reason if ok else "generator_returned_cannot_confirm_from_cards",
+            candidate_cards=candidate_cards,
+            supported_cards=supported_card_titles,
+            card_support_sections=card_support_sections,
+            raw_candidate_sections=raw_candidate_sections,
+            raw_evidence_sections=[section.citation for section in card_evidence_sections],
+        )
         return response
 
     def _build_raw_response(
@@ -145,6 +194,11 @@ class ChatService:
         supported_cards: list[ConceptCardSearchResult],
         top_card_score: float | None,
         strongest_evidence_score: float,
+        decision_reason: str,
+        candidate_cards: list[str],
+        supported_card_titles: list[str],
+        card_support_sections: list[str],
+        raw_candidate_sections: list[str],
     ) -> dict:
         citations = [section.citation for section in raw_evidence_sections]
         prompt = build_grounded_answer_prompt(
@@ -173,7 +227,18 @@ class ChatService:
             "used_raw_sections": response_citations,
             "message": "Answer generated from raw section retrieval.",
         }
-        self._log_query(query, response, top_card_score=top_card_score, top_raw_score=strongest_evidence_score)
+        self._log_query(
+            query,
+            response,
+            top_card_score=top_card_score,
+            top_raw_score=strongest_evidence_score,
+            decision_reason=decision_reason if ok else "generator_returned_cannot_confirm_from_raw",
+            candidate_cards=candidate_cards,
+            supported_cards=supported_card_titles,
+            card_support_sections=card_support_sections,
+            raw_candidate_sections=raw_candidate_sections,
+            raw_evidence_sections=citations,
+        )
         return response
 
     def _log_query(
@@ -183,6 +248,12 @@ class ChatService:
         *,
         top_card_score: float | None = None,
         top_raw_score: float | None = None,
+        decision_reason: str = "",
+        candidate_cards: list[str] | None = None,
+        supported_cards: list[str] | None = None,
+        card_support_sections: list[str] | None = None,
+        raw_candidate_sections: list[str] | None = None,
+        raw_evidence_sections: list[str] | None = None,
     ) -> None:
         self._repository.log_query_record(
             QueryRecord(
@@ -195,6 +266,12 @@ class ChatService:
                 used_raw_sections=response["used_raw_sections"],
                 top_card_score=top_card_score,
                 top_raw_score=top_raw_score,
+                decision_reason=decision_reason,
+                candidate_cards=candidate_cards or [],
+                supported_cards=supported_cards or [],
+                card_support_sections=card_support_sections or [],
+                raw_candidate_sections=raw_candidate_sections or [],
+                raw_evidence_sections=raw_evidence_sections or [],
             )
         )
 

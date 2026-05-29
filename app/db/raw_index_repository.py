@@ -43,6 +43,12 @@ class QueryRecord:
     used_raw_sections: list[str]
     top_card_score: float | None
     top_raw_score: float | None
+    decision_reason: str
+    candidate_cards: list[str]
+    supported_cards: list[str]
+    card_support_sections: list[str]
+    raw_candidate_sections: list[str]
+    raw_evidence_sections: list[str]
 
 
 @dataclass(frozen=True)
@@ -124,6 +130,12 @@ def initialize_raw_index_schema(database_path: Path) -> None:
                 used_raw_sections TEXT NOT NULL,
                 top_card_score REAL,
                 top_raw_score REAL,
+                decision_reason TEXT NOT NULL DEFAULT '',
+                candidate_cards TEXT NOT NULL DEFAULT '[]',
+                supported_cards TEXT NOT NULL DEFAULT '[]',
+                card_support_sections TEXT NOT NULL DEFAULT '[]',
+                raw_candidate_sections TEXT NOT NULL DEFAULT '[]',
+                raw_evidence_sections TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -161,6 +173,7 @@ def initialize_raw_index_schema(database_path: Path) -> None:
 class RawIndexRepository:
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
+        initialize_raw_index_schema(self._database_path)
 
     def replace_documents(self, documents: list[ParsedDocument]) -> ReplaceDocumentsSummary:
         raw_sections_indexed = 0
@@ -335,8 +348,14 @@ class RawIndexRepository:
                         used_cards,
                         used_raw_sections,
                         top_card_score,
-                        top_raw_score
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        top_raw_score,
+                        decision_reason,
+                        candidate_cards,
+                        supported_cards,
+                        card_support_sections,
+                        raw_candidate_sections,
+                        raw_evidence_sections
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         record.query_text,
@@ -348,6 +367,12 @@ class RawIndexRepository:
                         json.dumps(record.used_raw_sections),
                         record.top_card_score,
                         record.top_raw_score,
+                        record.decision_reason,
+                        json.dumps(record.candidate_cards),
+                        json.dumps(record.supported_cards),
+                        json.dumps(record.card_support_sections),
+                        json.dumps(record.raw_candidate_sections),
+                        json.dumps(record.raw_evidence_sections),
                     ),
                 )
         finally:
@@ -368,7 +393,13 @@ class RawIndexRepository:
                     used_cards,
                     used_raw_sections,
                     top_card_score,
-                    top_raw_score
+                    top_raw_score,
+                    decision_reason,
+                    candidate_cards,
+                    supported_cards,
+                    card_support_sections,
+                    raw_candidate_sections,
+                    raw_evidence_sections
                 FROM query_record
                 ORDER BY query_id ASC
                 """
@@ -384,6 +415,12 @@ class RawIndexRepository:
                     used_raw_sections=json.loads(row["used_raw_sections"]),
                     top_card_score=row["top_card_score"],
                     top_raw_score=row["top_raw_score"],
+                    decision_reason=row["decision_reason"],
+                    candidate_cards=json.loads(row["candidate_cards"]),
+                    supported_cards=json.loads(row["supported_cards"]),
+                    card_support_sections=json.loads(row["card_support_sections"]),
+                    raw_candidate_sections=json.loads(row["raw_candidate_sections"]),
+                    raw_evidence_sections=json.loads(row["raw_evidence_sections"]),
                 )
                 for row in rows
             ]
@@ -577,6 +614,39 @@ class RawIndexRepository:
         finally:
             connection.close()
 
+    def prune_related_cards(self) -> None:
+        connection = sqlite3.connect(self._database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            with connection:
+                active_titles = {
+                    row["title"]
+                    for row in connection.execute(
+                        "SELECT title FROM concept_card WHERE is_active = 1"
+                    ).fetchall()
+                }
+                rows = connection.execute(
+                    """
+                    SELECT card_id, title, related_cards
+                    FROM concept_card
+                    WHERE is_active = 1
+                    """
+                ).fetchall()
+                for row in rows:
+                    related_cards = json.loads(row["related_cards"])
+                    filtered = [
+                        related
+                        for related in related_cards
+                        if related in active_titles and related != row["title"]
+                    ]
+                    if filtered != related_cards:
+                        connection.execute(
+                            "UPDATE concept_card SET related_cards = ? WHERE card_id = ?",
+                            (json.dumps(filtered), row["card_id"]),
+                        )
+        finally:
+            connection.close()
+
     def search_concept_cards(self, query: str, *, limit: int) -> list[ConceptCardSearchResult]:
         normalized_query = _normalize_fts_query(query)
         if not normalized_query:
@@ -687,3 +757,27 @@ def _ensure_query_record_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE query_record ADD COLUMN top_card_score REAL")
     if "top_raw_score" not in existing_columns:
         connection.execute("ALTER TABLE query_record ADD COLUMN top_raw_score REAL")
+    if "decision_reason" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE query_record ADD COLUMN decision_reason TEXT NOT NULL DEFAULT ''"
+        )
+    if "candidate_cards" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE query_record ADD COLUMN candidate_cards TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "supported_cards" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE query_record ADD COLUMN supported_cards TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "card_support_sections" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE query_record ADD COLUMN card_support_sections TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "raw_candidate_sections" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE query_record ADD COLUMN raw_candidate_sections TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "raw_evidence_sections" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE query_record ADD COLUMN raw_evidence_sections TEXT NOT NULL DEFAULT '[]'"
+        )

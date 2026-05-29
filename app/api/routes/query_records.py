@@ -22,6 +22,12 @@ def list_query_records(request: Request) -> list[dict]:
             "used_raw_sections": record.used_raw_sections,
             "top_card_score": record.top_card_score,
             "top_raw_score": record.top_raw_score,
+            "decision_reason": record.decision_reason,
+            "candidate_cards": record.candidate_cards,
+            "supported_cards": record.supported_cards,
+            "card_support_sections": record.card_support_sections,
+            "raw_candidate_sections": record.raw_candidate_sections,
+            "raw_evidence_sections": record.raw_evidence_sections,
         }
         for record in repository.list_query_records()
     ]

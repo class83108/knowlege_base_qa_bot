@@ -45,6 +45,12 @@ def test_log_query_record_persists_chat_observability_fields(tmp_path: Path) -> 
             used_raw_sections=["refund_policy.md#refund-timeline"],
             top_card_score=-0.25,
             top_raw_score=-0.5,
+            decision_reason="raw_evidence_sufficient",
+            candidate_cards=["Refund Timeline"],
+            supported_cards=[],
+            card_support_sections=[],
+            raw_candidate_sections=["refund_policy.md#refund-timeline"],
+            raw_evidence_sections=["refund_policy.md#refund-timeline"],
         )
     )
 
@@ -57,3 +63,6 @@ def test_log_query_record_persists_chat_observability_fields(tmp_path: Path) -> 
     assert records[0].citations == ["refund_policy.md#refund-timeline"]
     assert records[0].top_card_score == -0.25
     assert records[0].top_raw_score == -0.5
+    assert records[0].decision_reason == "raw_evidence_sufficient"
+    assert records[0].candidate_cards == ["Refund Timeline"]
+    assert records[0].raw_evidence_sections == ["refund_policy.md#refund-timeline"]

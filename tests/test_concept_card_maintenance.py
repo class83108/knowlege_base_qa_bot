@@ -15,6 +15,18 @@ class FakeCardGenerator:
         return GeneratedCardContent(summary=self.summary, key_points=self.key_points)
 
 
+class FakeCardGeneratorWithRelations:
+    def __init__(self, *, related_cards: list[str]) -> None:
+        self.related_cards = related_cards
+
+    def generate(self, title: str, sections: list[str]) -> GeneratedCardContent:  # noqa: ARG002
+        return GeneratedCardContent(
+            summary=f"{title} summary",
+            key_points=[f"{title} point"],
+            related_cards=self.related_cards,
+        )
+
+
 def _doc(path: str, markdown: str):
     return parse_markdown_document(
         document_path=path,
@@ -147,3 +159,29 @@ def test_creates_card_without_llm_when_no_generator() -> None:
 
     assert len(cards) == 1
     assert "Refunds take 5 days." in cards[0].summary
+
+
+def test_filters_related_cards_to_known_titles() -> None:
+    docs = [
+        _doc("docs/refund.md", "# Refund Timeline\nRefunds take 5 days.\n"),
+        _doc("docs/shipping.md", "# Expedited Shipping\nShipping takes 2 days.\n"),
+    ]
+    generator = FakeCardGeneratorWithRelations(
+        related_cards=[
+            "Expedited Shipping",
+            "Order Returns",
+            "Refund Timeline",
+        ]
+    )
+
+    cards = maintain_concept_cards(
+        docs,
+        search_cards=lambda query, limit: [],
+        card_generator=generator,
+    )
+
+    refund_card = next(card for card in cards if card.title == "Refund Timeline")
+    shipping_card = next(card for card in cards if card.title == "Expedited Shipping")
+
+    assert refund_card.related_cards == ["Expedited Shipping"]
+    assert shipping_card.related_cards == ["Refund Timeline"]

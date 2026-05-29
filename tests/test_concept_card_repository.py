@@ -212,3 +212,40 @@ def test_deactivate_unsupported_cards_keeps_card_active_when_some_sources_remain
     results = repo.search_concept_cards("refunds", limit=3)
     assert len(results) == 1
     assert results[0].title == "Refund Timeline"
+
+
+def test_prune_related_cards_removes_missing_and_self_links(tmp_path: Path) -> None:
+    from app.db.raw_index_repository import (
+        ConceptCardRecord,
+        RawIndexRepository,
+        initialize_raw_index_schema,
+    )
+
+    db_path = tmp_path / "kb.db"
+    initialize_raw_index_schema(db_path)
+    repo = RawIndexRepository(db_path)
+
+    repo.upsert_concept_cards(
+        [
+            ConceptCardRecord(
+                title="Refund Timeline",
+                summary="Refunds take 5 days.",
+                key_points=["5 days"],
+                raw_sources=["refund_policy.md#refund-timeline"],
+                related_cards=["Refund Timeline", "Expedited Shipping", "Order Returns"],
+            ),
+            ConceptCardRecord(
+                title="Expedited Shipping",
+                summary="Shipping takes 2 days.",
+                key_points=["2 days"],
+                raw_sources=["shipping_faq.md#expedited-shipping"],
+                related_cards=[],
+            ),
+        ]
+    )
+
+    repo.prune_related_cards()
+
+    results = repo.search_concept_cards("refunds", limit=3)
+    assert len(results) == 1
+    assert results[0].related_cards == ["Expedited Shipping"]

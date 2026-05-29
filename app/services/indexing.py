@@ -64,6 +64,7 @@ class IndexingService:
                 )
             )
         repository.deactivate_unsupported_cards()
+        repository.prune_related_cards()
         manifest = build_index_manifest(current_documents)
         write_index_manifest(self._manifest_path, manifest)
         return {

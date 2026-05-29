@@ -16,16 +16,34 @@ def maintain_concept_cards(
     candidate_limit: int = 3,
 ) -> list[ConceptCardRecord]:
     grouped = group_sections_by_heading(documents)
-    result = []
+    result: list[ConceptCardRecord] = []
+    candidate_titles: set[str] = set()
     for title, (contents, citations) in grouped.items():
         candidates = [
             c for c in search_cards(title, candidate_limit)
             if c.score <= CARD_SCORE_THRESHOLD
         ]
+        candidate_titles.update(card.title for card in candidates)
         if candidates:
             best = candidates[0]
             card = _make_card(best.title, contents, citations, card_generator)
         else:
             card = _make_card(title, contents, citations, card_generator)
         result.append(card)
-    return result
+
+    allowed_titles = {card.title for card in result}
+    allowed_titles.update(candidate_titles)
+    return [
+        ConceptCardRecord(
+            title=card.title,
+            summary=card.summary,
+            key_points=card.key_points,
+            raw_sources=card.raw_sources,
+            related_cards=[
+                related
+                for related in card.related_cards
+                if related != card.title and related in allowed_titles
+            ],
+        )
+        for card in result
+    ]
