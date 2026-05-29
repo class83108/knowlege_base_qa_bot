@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
@@ -59,6 +59,7 @@ class ConceptCardRecord:
     summary: str
     key_points: list[str]
     raw_sources: list[str]
+    related_cards: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class ConceptCardSearchResult:
     key_points: list[str]
     raw_sources: list[str]
     score: float
+    related_cards: list[str] = field(default_factory=list)
 
 
 def initialize_raw_index_schema(database_path: Path) -> None:
@@ -152,6 +154,7 @@ def initialize_raw_index_schema(database_path: Path) -> None:
             """
         )
         _ensure_query_record_columns(connection)
+        _ensure_concept_card_columns(connection)
         connection.commit()
     finally:
         connection.close()
@@ -468,13 +471,14 @@ class RawIndexRepository:
                         connection.execute(
                             """
                             UPDATE concept_card
-                            SET summary = ?, key_points = ?, raw_sources = ?, is_active = 1
+                            SET summary = ?, key_points = ?, raw_sources = ?, related_cards = ?, is_active = 1
                             WHERE card_id = ?
                             """,
                             (
                                 card.summary,
                                 json.dumps(card.key_points),
                                 json.dumps(card.raw_sources),
+                                json.dumps(card.related_cards),
                                 card_id,
                             ),
                         )
@@ -491,14 +495,15 @@ class RawIndexRepository:
                         cursor = connection.execute(
                             """
                             INSERT INTO concept_card (
-                                title, summary, key_points, raw_sources, is_active
-                            ) VALUES (?, ?, ?, ?, 1)
+                                title, summary, key_points, raw_sources, related_cards, is_active
+                            ) VALUES (?, ?, ?, ?, ?, 1)
                             """,
                             (
                                 card.title,
                                 card.summary,
                                 json.dumps(card.key_points),
                                 json.dumps(card.raw_sources),
+                                json.dumps(card.related_cards),
                             ),
                         )
                         card_id = int(cursor.lastrowid)
@@ -588,6 +593,7 @@ class RawIndexRepository:
                     cc.summary,
                     cc.key_points,
                     cc.raw_sources,
+                    cc.related_cards,
                     bm25(concept_card_fts, 10, 5, 2) AS score
                 FROM concept_card_fts fts
                 JOIN concept_card cc ON cc.card_id = fts.rowid
@@ -603,6 +609,7 @@ class RawIndexRepository:
                     summary=row["summary"],
                     key_points=json.loads(row["key_points"]),
                     raw_sources=json.loads(row["raw_sources"]),
+                    related_cards=json.loads(row["related_cards"]),
                     score=float(row["score"]),
                 )
                 for row in rows
@@ -700,6 +707,17 @@ def _normalize_fts_query(query: str) -> str:
             lexical_clause = f"({lexical_clause})"
         clauses.append(lexical_clause)
     return " AND ".join(clauses)
+
+
+def _ensure_concept_card_columns(connection: sqlite3.Connection) -> None:
+    existing = {
+        row[1]
+        for row in connection.execute("PRAGMA table_info(concept_card)").fetchall()
+    }
+    if "related_cards" not in existing:
+        connection.execute(
+            "ALTER TABLE concept_card ADD COLUMN related_cards TEXT NOT NULL DEFAULT '[]'"
+        )
 
 
 def _ensure_query_record_columns(connection: sqlite3.Connection) -> None:

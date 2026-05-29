@@ -101,6 +101,35 @@ def test_repository_replace_concept_cards_deactivates_stale_cards(tmp_path: Path
     assert timeline_results[0].summary == "Refunds are processed within 7 business days."
 
 
+def test_repository_stores_and_retrieves_related_cards(tmp_path: Path) -> None:
+    from app.db.raw_index_repository import (
+        ConceptCardRecord,
+        RawIndexRepository,
+        initialize_raw_index_schema,
+    )
+
+    db_path = tmp_path / "kb.db"
+    initialize_raw_index_schema(db_path)
+    repo = RawIndexRepository(db_path)
+
+    repo.upsert_concept_cards(
+        [
+            ConceptCardRecord(
+                title="Refund Timeline",
+                summary="Refunds take 5 days.",
+                key_points=["5 days"],
+                raw_sources=["refund_policy.md#refund-timeline"],
+                related_cards=["Eligibility", "Returns Policy"],
+            )
+        ]
+    )
+
+    results = repo.search_concept_cards("refunds", limit=3)
+
+    assert len(results) == 1
+    assert results[0].related_cards == ["Eligibility", "Returns Policy"]
+
+
 def test_deactivate_unsupported_cards_marks_card_inactive_when_raw_section_removed(
     tmp_path: Path,
 ) -> None:

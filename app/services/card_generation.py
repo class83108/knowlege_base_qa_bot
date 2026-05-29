@@ -17,8 +17,12 @@ CARD_CONTENT_FORMAT = {
                 "type": "array",
                 "items": {"type": "string"},
             },
+            "related_cards": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
         },
-        "required": ["summary", "key_points"],
+        "required": ["summary", "key_points", "related_cards"],
         "additionalProperties": False,
     },
 }
@@ -39,21 +43,25 @@ def _fallback_content(sections: list[str]) -> GeneratedCardContent:
     return GeneratedCardContent(
         summary="\n\n".join(sections),
         key_points=list(sections),
+        related_cards=[],
     )
 
 
 def _parse_card_response(payload: str, sections: list[str]) -> GeneratedCardContent:
     try:
         data = json.loads(payload)
-    except (json.JSONDecodeError, Exception):
+    except Exception:
         return _fallback_content(sections)
     summary = data.get("summary")
     key_points = data.get("key_points")
+    related_cards = data.get("related_cards", [])
     if not isinstance(summary, str):
         return _fallback_content(sections)
     if not isinstance(key_points, list) or not all(isinstance(p, str) for p in key_points):
         return _fallback_content(sections)
-    return GeneratedCardContent(summary=summary, key_points=key_points)
+    if not isinstance(related_cards, list) or not all(isinstance(r, str) for r in related_cards):
+        related_cards = []
+    return GeneratedCardContent(summary=summary, key_points=key_points, related_cards=related_cards)
 
 
 class OpenAICardGenerator:

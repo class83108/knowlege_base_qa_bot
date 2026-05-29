@@ -79,6 +79,30 @@ def test_openai_card_generator_falls_back_on_api_exception() -> None:
     assert "Refunds take 5 days." in result.summary
 
 
+def test_openai_card_generator_parses_related_cards() -> None:
+    output = json.dumps({
+        "summary": "LLM summary",
+        "key_points": ["p1"],
+        "related_cards": ["Shipping Policy", "Returns FAQ"],
+    })
+    client = FakeCardClient(output)
+    generator = OpenAICardGenerator(model="gpt-5", client=client)
+
+    result = generator.generate(title="Refund Policy", sections=["Refunds take 5 days."])
+
+    assert result.related_cards == ["Shipping Policy", "Returns FAQ"]
+
+
+def test_openai_card_generator_defaults_related_cards_to_empty_when_missing() -> None:
+    output = json.dumps({"summary": "LLM summary", "key_points": ["p1"]})
+    client = FakeCardClient(output)
+    generator = OpenAICardGenerator(model="gpt-5", client=client)
+
+    result = generator.generate(title="Refund Policy", sections=["Refunds take 5 days."])
+
+    assert result.related_cards == []
+
+
 def test_build_card_generator_returns_none_without_api_key() -> None:
     assert build_card_generator(openai_api_key=None, openai_model="gpt-5") is None
 

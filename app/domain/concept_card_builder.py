@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.db.raw_index_repository import ConceptCardRecord
@@ -11,6 +11,7 @@ from app.domain.markdown_parser import ParsedDocument
 class GeneratedCardContent:
     summary: str
     key_points: list[str]
+    related_cards: list[str] = field(default_factory=list)
 
 
 class CardGenerator(Protocol):
@@ -58,10 +59,12 @@ def _make_card(
             summary=generated.summary,
             key_points=generated.key_points,
             raw_sources=citations,
+            related_cards=generated.related_cards,
         )
     return ConceptCardRecord(
         title=title,
         summary="\n\n".join(contents),
         key_points=list(contents),
         raw_sources=citations,
+        related_cards=[],
     )
