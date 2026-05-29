@@ -87,3 +87,29 @@ def test_replace_documents_marks_previous_versions_inactive(tmp_path: Path) -> N
     assert len(results) == 1
     assert "7 business days" in results[0].content
     assert stale_results == []
+
+
+def test_repository_lists_active_documents_and_can_deactivate_deleted_paths(tmp_path: Path) -> None:
+    from app.db.raw_index_repository import (
+        RawIndexRepository,
+        initialize_raw_index_schema,
+    )
+
+    database_path = tmp_path / "kb.db"
+    initialize_raw_index_schema(database_path)
+    repository = RawIndexRepository(database_path)
+    document = _build_document(
+        "docs/refund_policy.md",
+        "# Refund Policy\nRefunds are processed within 5 business days.\n",
+    )
+
+    repository.replace_documents([document])
+
+    active_before = repository.list_active_documents()
+    repository.deactivate_deleted_paths(["docs/refund_policy.md"])
+    active_after = repository.list_active_documents()
+    results_after = repository.search_raw_sections("refunds business days", limit=5)
+
+    assert [record.path for record in active_before] == ["docs/refund_policy.md"]
+    assert active_after == []
+    assert results_after == []

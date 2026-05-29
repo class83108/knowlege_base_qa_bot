@@ -38,6 +38,12 @@ class QueryRecord:
     used_raw_sections: list[str]
 
 
+@dataclass(frozen=True)
+class ActiveDocumentRecord:
+    path: str
+    content_hash: str
+
+
 def initialize_raw_index_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database_path)
@@ -318,6 +324,68 @@ class RawIndexRepository:
                 )
                 for row in rows
             ]
+        finally:
+            connection.close()
+
+    def list_active_documents(self) -> list[ActiveDocumentRecord]:
+        if not self._database_path.exists():
+            return []
+        connection = sqlite3.connect(self._database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute(
+                """
+                SELECT path, content_hash
+                FROM source_document
+                WHERE is_active = 1
+                ORDER BY path ASC
+                """
+            ).fetchall()
+            return [
+                ActiveDocumentRecord(
+                    path=row["path"],
+                    content_hash=row["content_hash"],
+                )
+                for row in rows
+            ]
+        finally:
+            connection.close()
+
+    def deactivate_deleted_paths(self, paths: list[str]) -> None:
+        if not paths or not self._database_path.exists():
+            return
+        connection = sqlite3.connect(self._database_path)
+        try:
+            with connection:
+                for path in paths:
+                    row = connection.execute(
+                        """
+                        SELECT document_id
+                        FROM source_document
+                        WHERE path = ? AND is_active = 1
+                        """,
+                        (path,),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    document_id = int(row[0])
+                    connection.execute(
+                        "UPDATE source_document SET is_active = 0 WHERE document_id = ?",
+                        (document_id,),
+                    )
+                    connection.execute(
+                        "UPDATE raw_section SET is_active = 0 WHERE document_id = ?",
+                        (document_id,),
+                    )
+                    connection.execute(
+                        """
+                        DELETE FROM raw_section_fts
+                        WHERE rowid IN (
+                            SELECT section_id FROM raw_section WHERE document_id = ?
+                        )
+                        """,
+                        (document_id,),
+                    )
         finally:
             connection.close()
 

@@ -3,6 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.db.raw_index_repository import RawIndexRepository, initialize_raw_index_schema
+from app.domain.indexing_plan import (
+    ActiveDocumentRecord,
+    plan_indexing_changes,
+)
 from app.domain.index_manifest import build_index_manifest, write_index_manifest
 from app.domain.ingest import ingest_markdown_directory
 
@@ -28,12 +32,28 @@ class IndexingService:
             max_chunk_chars=self._max_chunk_chars,
         )
         repository = RawIndexRepository(self._database_path)
-        summary = repository.replace_documents(documents)
-        manifest = build_index_manifest(documents)
+        plan = plan_indexing_changes(
+            current_documents=documents,
+            active_documents=[
+                ActiveDocumentRecord(
+                    path=record.path,
+                    content_hash=record.content_hash,
+                )
+                for record in repository.list_active_documents()
+            ],
+        )
+        repository.deactivate_deleted_paths(plan.deleted_paths)
+        documents_to_replace = plan.new_documents + plan.changed_documents
+        summary = repository.replace_documents(documents_to_replace)
+        manifest = build_index_manifest(
+            plan.unchanged_documents + plan.new_documents + plan.changed_documents
+        )
         write_index_manifest(self._manifest_path, manifest)
         return {
             "status": "ok",
             "files_indexed": summary.files_indexed,
             "raw_sections_indexed": summary.raw_sections_indexed,
+            "unchanged_documents": len(plan.unchanged_documents),
+            "deleted_documents": len(plan.deleted_paths),
             "message": "Index rebuilt successfully.",
         }
