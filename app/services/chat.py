@@ -165,7 +165,11 @@ class ChatService:
         raw_candidate_sections: list[str],
         latency_ms: int,
     ) -> dict:
-        prompt = build_grounded_answer_prompt(query=query, sections=card_evidence_sections)
+        prompt = build_grounded_answer_prompt(
+            query=query,
+            sections=card_evidence_sections,
+            cards=supported_cards,
+        )
         generation = self._answer_generator.generate(prompt)
         grounded_answer = parse_grounded_answer_response(generation.payload)
         allowed_citations = {section.citation for section in card_evidence_sections}

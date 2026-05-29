@@ -133,6 +133,10 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
     assert repository.logged[0].decision_reason == "card_evidence_sufficient"
     assert repository.logged[0].candidate_cards == ["Refund Timeline"]
     assert repository.logged[0].supported_cards == ["Refund Timeline"]
+    assert "Card context:" in generator.prompts[0]
+    assert "Refund Timeline" in generator.prompts[0]
+    assert "Refunds are processed within 5 business days." in generator.prompts[0]
+    assert "- Refunds take 5 business days." in generator.prompts[0]
     assert repository.logged[0].latency_ms is not None
     assert repository.logged[0].input_tokens == 11
     assert repository.logged[0].output_tokens == 7
