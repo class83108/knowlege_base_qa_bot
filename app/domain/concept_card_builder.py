@@ -36,6 +36,8 @@ def group_sections_by_heading(
     grouped: dict[str, tuple[list[str], list[str]]] = {}
     for document in documents:
         for section in document.sections:
+            if not section.content.strip():
+                continue
             if section.heading not in grouped:
                 grouped[section.heading] = ([], [])
             contents, citations = grouped[section.heading]

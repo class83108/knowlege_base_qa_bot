@@ -78,6 +78,18 @@ def test_build_concept_cards_passes_all_merged_sections_to_generator() -> None:
     assert "Most refunds complete within 5 to 7 business days." in generator.calls[0]["sections"]
 
 
+def test_build_concept_cards_skips_section_with_empty_content() -> None:
+    document = parse_markdown_document(
+        document_path="docs/account_help.md",
+        markdown="# Account Help\n\n## Reset Password\nReset your password from the sign-in page.\n",
+        max_chunk_chars=1_000,
+    )
+
+    cards = build_concept_cards([document])
+
+    assert [card.title for card in cards] == ["Reset Password"]
+
+
 def test_build_concept_cards_merges_sections_with_same_heading() -> None:
     first = parse_markdown_document(
         document_path="docs/refund_policy.md",
