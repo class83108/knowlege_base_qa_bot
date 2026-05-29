@@ -63,3 +63,29 @@ def test_indexing_service_skips_unchanged_documents_and_deactivates_deleted_ones
     assert second["deleted_documents"] == 1
     assert second["unchanged_documents"] == 1
     assert active_paths == ["docs/refund_policy.md"]
+
+
+def test_indexing_service_generates_concept_cards_during_rebuild(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    kb_dir = tmp_path / ".kb"
+    docs_dir.mkdir()
+    (docs_dir / "refund_policy.md").write_text(
+        "# Refund Timeline\nRefunds are processed within 5 business days.\n",
+        encoding="utf-8",
+    )
+    service = IndexingService(
+        docs_dir=docs_dir,
+        manifest_path=kb_dir / "index.json",
+        database_path=kb_dir / "knowledge_base.db",
+        max_chunk_chars=1_000,
+    )
+
+    service.rebuild_index()
+
+    from app.db.raw_index_repository import RawIndexRepository
+
+    repository = RawIndexRepository(kb_dir / "knowledge_base.db")
+    cards = repository.search_concept_cards("refunds timeline", limit=3)
+
+    assert len(cards) == 1
+    assert cards[0].title == "Refund Timeline"

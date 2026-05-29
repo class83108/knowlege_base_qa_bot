@@ -44,6 +44,22 @@ class ActiveDocumentRecord:
     content_hash: str
 
 
+@dataclass(frozen=True)
+class ConceptCardRecord:
+    title: str
+    summary: str
+    key_points: list[str]
+    raw_sources: list[str]
+
+
+@dataclass(frozen=True)
+class ConceptCardSearchResult:
+    title: str
+    summary: str
+    key_points: list[str]
+    raw_sources: list[str]
+
+
 def initialize_raw_index_schema(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database_path)
@@ -97,6 +113,29 @@ def initialize_raw_index_schema(database_path: Path) -> None:
                 used_cards TEXT NOT NULL,
                 used_raw_sections TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS concept_card (
+                card_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL UNIQUE,
+                summary TEXT NOT NULL,
+                key_points TEXT NOT NULL,
+                raw_sources TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS concept_card_source (
+                card_id INTEGER NOT NULL,
+                section_citation TEXT NOT NULL,
+                source_order INTEGER NOT NULL,
+                FOREIGN KEY (card_id) REFERENCES concept_card(card_id)
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS concept_card_fts USING fts5(
+                title,
+                summary,
+                key_points,
+                card_id UNINDEXED
             );
             """
         )
@@ -386,6 +425,114 @@ class RawIndexRepository:
                         """,
                         (document_id,),
                     )
+        finally:
+            connection.close()
+
+    def upsert_concept_cards(self, cards: list[ConceptCardRecord]) -> None:
+        connection = sqlite3.connect(self._database_path)
+        try:
+            with connection:
+                for card in cards:
+                    existing_row = connection.execute(
+                        "SELECT card_id FROM concept_card WHERE title = ?",
+                        (card.title,),
+                    ).fetchone()
+                    if existing_row is not None:
+                        card_id = int(existing_row[0])
+                        connection.execute(
+                            """
+                            UPDATE concept_card
+                            SET summary = ?, key_points = ?, raw_sources = ?, is_active = 1
+                            WHERE card_id = ?
+                            """,
+                            (
+                                card.summary,
+                                json.dumps(card.key_points),
+                                json.dumps(card.raw_sources),
+                                card_id,
+                            ),
+                        )
+                        connection.execute(
+                            "DELETE FROM concept_card_source WHERE card_id = ?",
+                            (card_id,),
+                        )
+                        connection.execute(
+                            "DELETE FROM concept_card_fts WHERE rowid = ?",
+                            (card_id,),
+                        )
+                    else:
+                        cursor = connection.execute(
+                            """
+                            INSERT INTO concept_card (
+                                title, summary, key_points, raw_sources, is_active
+                            ) VALUES (?, ?, ?, ?, 1)
+                            """,
+                            (
+                                card.title,
+                                card.summary,
+                                json.dumps(card.key_points),
+                                json.dumps(card.raw_sources),
+                            ),
+                        )
+                        card_id = int(cursor.lastrowid)
+
+                    for index, raw_source in enumerate(card.raw_sources):
+                        connection.execute(
+                            """
+                            INSERT INTO concept_card_source (
+                                card_id, section_citation, source_order
+                            ) VALUES (?, ?, ?)
+                            """,
+                            (card_id, raw_source, index),
+                        )
+                    connection.execute(
+                        """
+                        INSERT INTO concept_card_fts (
+                            rowid, title, summary, key_points, card_id
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            card_id,
+                            card.title,
+                            card.summary,
+                            "\n".join(card.key_points),
+                            card_id,
+                        ),
+                    )
+        finally:
+            connection.close()
+
+    def search_concept_cards(self, query: str, *, limit: int) -> list[ConceptCardSearchResult]:
+        normalized_query = _normalize_fts_query(query)
+        if not normalized_query:
+            return []
+        connection = sqlite3.connect(self._database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute(
+                """
+                SELECT
+                    cc.title,
+                    cc.summary,
+                    cc.key_points,
+                    cc.raw_sources
+                FROM concept_card_fts fts
+                JOIN concept_card cc ON cc.card_id = fts.rowid
+                WHERE concept_card_fts MATCH ? AND cc.is_active = 1
+                ORDER BY bm25(concept_card_fts)
+                LIMIT ?
+                """,
+                (normalized_query, limit),
+            ).fetchall()
+            return [
+                ConceptCardSearchResult(
+                    title=row["title"],
+                    summary=row["summary"],
+                    key_points=json.loads(row["key_points"]),
+                    raw_sources=json.loads(row["raw_sources"]),
+                )
+                for row in rows
+            ]
         finally:
             connection.close()
 

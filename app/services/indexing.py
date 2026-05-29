@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.db.raw_index_repository import RawIndexRepository, initialize_raw_index_schema
+from app.domain.concept_card_builder import build_concept_cards
 from app.domain.indexing_plan import (
     ActiveDocumentRecord,
     plan_indexing_changes,
@@ -45,9 +46,11 @@ class IndexingService:
         repository.deactivate_deleted_paths(plan.deleted_paths)
         documents_to_replace = plan.new_documents + plan.changed_documents
         summary = repository.replace_documents(documents_to_replace)
-        manifest = build_index_manifest(
+        current_documents = (
             plan.unchanged_documents + plan.new_documents + plan.changed_documents
         )
+        repository.upsert_concept_cards(build_concept_cards(current_documents))
+        manifest = build_index_manifest(current_documents)
         write_index_manifest(self._manifest_path, manifest)
         return {
             "status": "ok",

@@ -9,6 +9,8 @@ from app.api.routes.index import router as index_router
 from app.core.config import get_settings
 from app.db.session import initialize_database
 
+_UNSET = object()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,14 +25,20 @@ def create_app(
     docs_dir: Path | None = None,
     kb_dir: Path | None = None,
     sqlite_path: Path | None = None,
+    openai_api_key: str | None | object = _UNSET,
+    openai_model: str | object = _UNSET,
 ) -> FastAPI:
-    settings = get_settings().model_copy(
-        update={
-            "docs_dir": docs_dir or get_settings().docs_dir,
-            "kb_dir": kb_dir or get_settings().kb_dir,
-            "sqlite_path": sqlite_path or get_settings().sqlite_path,
-        }
-    )
+    base_settings = get_settings()
+    update = {
+        "docs_dir": docs_dir or base_settings.docs_dir,
+        "kb_dir": kb_dir or base_settings.kb_dir,
+        "sqlite_path": sqlite_path or base_settings.sqlite_path,
+    }
+    if openai_api_key is not _UNSET:
+        update["openai_api_key"] = openai_api_key
+    if openai_model is not _UNSET:
+        update["openai_model"] = openai_model
+    settings = base_settings.model_copy(update=update)
     app = FastAPI(
         title="Knowledge Base Q&A Bot",
         version="0.1.0",

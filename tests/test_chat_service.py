@@ -5,9 +5,16 @@ from app.services.chat import ChatService
 
 
 class FakeRepository:
-    def __init__(self, *, indexed: bool, results: list[RawSectionSearchResult]) -> None:
+    def __init__(
+        self,
+        *,
+        indexed: bool,
+        results: list[RawSectionSearchResult],
+        card_results=None,
+    ) -> None:
         self._indexed = indexed
         self._results = results
+        self._card_results = card_results or []
         self.logged: list[QueryRecord] = []
 
     def has_active_index(self) -> bool:
@@ -15,6 +22,9 @@ class FakeRepository:
 
     def search_raw_sections(self, query: str, *, limit: int) -> list[RawSectionSearchResult]:
         return self._results
+
+    def search_concept_cards(self, query: str, *, limit: int):
+        return self._card_results
 
     def log_query_record(self, record: QueryRecord) -> None:
         self.logged.append(record)
@@ -63,6 +73,48 @@ def test_chat_service_uses_generator_for_grounded_answer() -> None:
     assert len(generator.prompts) == 1
     assert "How long do refunds take?" in generator.prompts[0]
     assert "refund_policy.md#refund-timeline" in generator.prompts[0]
+
+
+def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
+    from app.db.raw_index_repository import ConceptCardSearchResult
+
+    repository = FakeRepository(
+        indexed=True,
+        results=[
+            RawSectionSearchResult(
+                document_path="docs/refund_policy.md",
+                heading="Refund Timeline",
+                heading_path="Refund Policy > Refund Timeline",
+                chunk_index=0,
+                content="Refunds are processed within 5 business days.",
+                citation="refund_policy.md#refund-timeline",
+                token_count=7,
+                block_types_present=["paragraph"],
+            )
+        ],
+        card_results=[
+            ConceptCardSearchResult(
+                title="Refund Timeline",
+                summary="Refunds are processed within 5 business days.",
+                key_points=["Refunds take 5 business days."],
+                raw_sources=["refund_policy.md#refund-timeline"],
+            )
+        ],
+    )
+    generator = FakeGenerator(
+        '{"status":"ok","answer":"Refunds take 5 business days.","citations":["refund_policy.md#refund-timeline"]}'
+    )
+    service = ChatService(
+        database_path=Path("/tmp/not-used.db"),
+        repository=repository,
+        answer_generator=generator,
+    )
+
+    response = service.answer("How long do refunds take?")
+
+    assert response["status"] == "ok"
+    assert response["retrieval_mode"] == "cards"
+    assert response["used_cards"] == ["Refund Timeline"]
 
 
 def test_chat_service_can_use_generator_fallback_answer() -> None:

@@ -37,6 +37,46 @@ class ChatService:
             self._log_query(query, response)
             return response
 
+        card_results = self._repository.search_concept_cards(query, limit=3)
+        if card_results:
+            top_card = card_results[0]
+            prompt = build_grounded_answer_prompt(
+                query=query,
+                sections=[
+                    type("CardSection", (), {
+                        "citation": raw_source,
+                        "content": top_card.summary,
+                    })()
+                    for raw_source in top_card.raw_sources
+                ],
+            )
+            grounded_answer = parse_grounded_answer_response(
+                self._answer_generator.generate(prompt)
+            )
+            response = {
+                "status": grounded_answer.status,
+                "retrieval_mode": "cards" if grounded_answer.status == "ok" else "none",
+                "answer": grounded_answer.answer,
+                "citations": [
+                    citation
+                    for citation in grounded_answer.citations
+                    if citation in top_card.raw_sources
+                ],
+                "used_cards": [top_card.title] if grounded_answer.status == "ok" else [],
+                "used_raw_sections": (
+                    [
+                        citation
+                        for citation in grounded_answer.citations
+                        if citation in top_card.raw_sources
+                    ]
+                    if grounded_answer.status == "ok"
+                    else []
+                ),
+                "message": "Answer generated from concept card retrieval.",
+            }
+            self._log_query(query, response)
+            return response
+
         results = self._repository.search_raw_sections(query, limit=3)
         evidence = select_raw_evidence(
             query=query,
