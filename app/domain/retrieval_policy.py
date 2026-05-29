@@ -1,28 +1,8 @@
 from __future__ import annotations
 
-import re
-
 from app.db.raw_index_repository import ConceptCardSearchResult, RawSectionSearchResult
 from app.domain.raw_evidence_selector import SelectedRawEvidence
-
-TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
-STOPWORDS = {
-    "a",
-    "an",
-    "are",
-    "do",
-    "does",
-    "how",
-    "i",
-    "is",
-    "long",
-    "of",
-    "take",
-    "the",
-    "to",
-    "what",
-    "which",
-}
+from app.domain.tokenizer import tokenize
 
 CARD_SCORE_THRESHOLD = -1e-6
 EVIDENCE_SCORE_THRESHOLD = -1e-7
@@ -65,14 +45,14 @@ def is_raw_evidence_sufficient(evidence: SelectedRawEvidence) -> bool:
 
 
 def _card_matches_query(query: str, card: ConceptCardSearchResult) -> bool:
-    query_terms = _query_terms(query)
+    query_terms = tokenize(query)
     if not query_terms:
         return False
-    card_terms = set(TOKEN_PATTERN.findall(card.title.lower()))
-    card_terms.update(TOKEN_PATTERN.findall(card.summary.lower()))
+    card_terms = tokenize(card.title)
+    card_terms.update(tokenize(card.summary))
     for point in card.key_points:
-        card_terms.update(TOKEN_PATTERN.findall(point.lower()))
-    return query_terms.issubset(card_terms)
+        card_terms.update(tokenize(point))
+    return bool(query_terms & card_terms)
 
 
 def _cards_have_meaningful_support(
@@ -81,19 +61,15 @@ def _cards_have_meaningful_support(
     cards: list[ConceptCardSearchResult],
     sections: list[RawSectionSearchResult],
 ) -> bool:
-    query_terms = _query_terms(query)
+    query_terms = tokenize(query)
     if not query_terms:
         return False
     support_terms: set[str] = set()
     for card in cards:
-        support_terms.update(TOKEN_PATTERN.findall(card.title.lower()))
-        support_terms.update(TOKEN_PATTERN.findall(card.summary.lower()))
+        support_terms.update(tokenize(card.title))
+        support_terms.update(tokenize(card.summary))
         for point in card.key_points:
-            support_terms.update(TOKEN_PATTERN.findall(point.lower()))
+            support_terms.update(tokenize(point))
     for section in sections:
-        support_terms.update(TOKEN_PATTERN.findall(section.content.lower()))
+        support_terms.update(tokenize(section.content))
     return bool(query_terms & support_terms)
-
-
-def _query_terms(query: str) -> set[str]:
-    return {term for term in TOKEN_PATTERN.findall(query.lower()) if term not in STOPWORDS}

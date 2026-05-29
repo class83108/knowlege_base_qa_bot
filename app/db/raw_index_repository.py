@@ -4,8 +4,6 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
-
 from app.domain.markdown_parser import ParsedDocument
 
 
@@ -666,47 +664,7 @@ class RawIndexRepository:
             connection.close()
 
 
-TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
-STOPWORDS = {
-    "a",
-    "an",
-    "are",
-    "do",
-    "does",
-    "how",
-    "i",
-    "is",
-    "long",
-    "of",
-    "take",
-    "the",
-    "to",
-    "what",
-    "which",
-}
-
-
-def _normalize_fts_query(query: str) -> str:
-    terms = [
-        term
-        for term in TOKEN_PATTERN.findall(query.lower())
-        if term not in STOPWORDS
-    ]
-    if not terms:
-        return ""
-    unique_terms = list(dict.fromkeys(terms))
-    numeric_terms = [term for term in unique_terms if term.isdigit()]
-    lexical_terms = [term for term in unique_terms if not term.isdigit()]
-
-    clauses: list[str] = []
-    if numeric_terms:
-        clauses.extend(numeric_terms)
-    if lexical_terms:
-        lexical_clause = " OR ".join(lexical_terms)
-        if len(lexical_terms) > 1:
-            lexical_clause = f"({lexical_clause})"
-        clauses.append(lexical_clause)
-    return " AND ".join(clauses)
+from app.domain.tokenizer import normalize_fts_query as _normalize_fts_query
 
 
 def _ensure_concept_card_columns(connection: sqlite3.Connection) -> None:

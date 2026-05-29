@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from app.db.raw_index_repository import RawSectionSearchResult
+from app.domain.tokenizer import tokenize
 
 
 @dataclass(frozen=True)
@@ -12,25 +12,6 @@ class SelectedRawEvidence:
     total_tokens: int
     has_meaningful_overlap: bool
     strongest_score: float
-
-
-TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
-STOPWORDS = {
-    "a",
-    "an",
-    "are",
-    "do",
-    "does",
-    "how",
-    "i",
-    "is",
-    "nearby",
-    "of",
-    "the",
-    "to",
-    "what",
-    "which",
-}
 
 
 def select_raw_evidence(
@@ -77,13 +58,11 @@ def _has_meaningful_overlap(
     query: str,
     sections: list[RawSectionSearchResult],
 ) -> bool:
-    query_terms = {
-        term for term in TOKEN_PATTERN.findall(query.lower()) if term not in STOPWORDS
-    }
+    query_terms = tokenize(query)
     if not query_terms or not sections:
         return False
 
-    content_terms = set()
+    content_terms: set[str] = set()
     for section in sections:
-        content_terms.update(TOKEN_PATTERN.findall(section.content.lower()))
+        content_terms.update(tokenize(section.content))
     return bool(query_terms & content_terms)
