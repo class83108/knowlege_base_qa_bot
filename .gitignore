@@ -1,4 +1,5 @@
 .DS_Store
+.env
 .kb/
 .pyc
 .pytest_cache/
