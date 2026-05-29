@@ -542,6 +542,27 @@ class RawIndexRepository:
             connection.close()
         self.upsert_concept_cards(cards)
 
+    def deactivate_unsupported_cards(self) -> None:
+        connection = sqlite3.connect(self._database_path)
+        try:
+            with connection:
+                connection.execute(
+                    """
+                    UPDATE concept_card
+                    SET is_active = 0
+                    WHERE is_active = 1
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM concept_card_source ccs
+                        JOIN raw_section rs
+                          ON rs.citation = ccs.section_citation AND rs.is_active = 1
+                        WHERE ccs.card_id = concept_card.card_id
+                      )
+                    """
+                )
+        finally:
+            connection.close()
+
     def search_concept_cards(self, query: str, *, limit: int) -> list[ConceptCardSearchResult]:
         normalized_query = _normalize_fts_query(query)
         if not normalized_query:

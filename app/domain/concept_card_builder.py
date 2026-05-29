@@ -22,14 +22,14 @@ def build_concept_cards(
     *,
     card_generator: CardGenerator | None = None,
 ) -> list[ConceptCardRecord]:
-    grouped = _group_sections_by_heading(documents)
+    grouped = group_sections_by_heading(documents)
     return [
         _make_card(title, contents, citations, card_generator)
         for title, (contents, citations) in grouped.items()
     ]
 
 
-def _group_sections_by_heading(
+def group_sections_by_heading(
     documents: list[ParsedDocument],
 ) -> dict[str, tuple[list[str], list[str]]]:
     grouped: dict[str, tuple[list[str], list[str]]] = {}

@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.db.raw_index_repository import RawIndexRepository, initialize_raw_index_schema
-from app.domain.concept_card_builder import CardGenerator, build_concept_cards
+from app.domain.concept_card_builder import CardGenerator
+from app.domain.concept_card_maintenance import maintain_concept_cards
 from app.domain.indexing_plan import (
     ActiveDocumentRecord,
     plan_indexing_changes,
@@ -47,13 +48,17 @@ class IndexingService:
         )
         repository.deactivate_deleted_paths(plan.deleted_paths)
         documents_to_replace = plan.new_documents + plan.changed_documents
+        current_documents = plan.unchanged_documents + plan.new_documents + plan.changed_documents
         summary = repository.replace_documents(documents_to_replace)
-        current_documents = (
-            plan.unchanged_documents + plan.new_documents + plan.changed_documents
-        )
-        repository.replace_concept_cards(
-            build_concept_cards(current_documents, card_generator=self._card_generator)
-        )
+        if documents_to_replace:
+            repository.upsert_concept_cards(
+                maintain_concept_cards(
+                    documents_to_replace,
+                    search_cards=lambda q, n: repository.search_concept_cards(q, limit=n),
+                    card_generator=self._card_generator,
+                )
+            )
+        repository.deactivate_unsupported_cards()
         manifest = build_index_manifest(current_documents)
         write_index_manifest(self._manifest_path, manifest)
         return {
