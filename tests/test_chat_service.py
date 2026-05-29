@@ -284,3 +284,59 @@ def test_chat_service_falls_back_to_raw_when_card_score_is_too_weak() -> None:
     response = service.answer("What is the refund timeline?")
 
     assert response["retrieval_mode"] == "raw"
+
+
+def test_chat_service_uses_cards_plus_raw_when_card_evidence_weak_but_raw_sufficient() -> None:
+    from app.db.raw_index_repository import ConceptCardSearchResult
+
+    # Two raw sections: one referenced by card (weak score), one only raw-reachable (strong score)
+    repository = FakeRepository(
+        indexed=True,
+        results=[
+            RawSectionSearchResult(
+                document_path="docs/refund_policy.md",
+                heading="Refund Policy",
+                heading_path="Refund Policy",
+                chunk_index=0,
+                content="Refunds are processed within 5 business days.",
+                citation="refund_policy.md#refund-policy",
+                token_count=7,
+                block_types_present=["paragraph"],
+                score=-0.5,  # strong score — raw path succeeds
+            ),
+            RawSectionSearchResult(
+                document_path="docs/refund_policy.md",
+                heading="Refund Timeline",
+                heading_path="Refund Policy > Refund Timeline",
+                chunk_index=0,
+                content="Refund timeline overview.",
+                citation="refund_policy.md#refund-timeline",
+                token_count=3,
+                block_types_present=["paragraph"],
+                score=-1e-8,  # weak score — card evidence fails threshold
+            ),
+        ],
+        card_results=[
+            ConceptCardSearchResult(
+                title="Refund Timeline",
+                summary="Refunds take 5 business days.",
+                key_points=["5 business days"],
+                raw_sources=["refund_policy.md#refund-timeline"],
+                score=-0.5,  # card itself passes filter
+            )
+        ],
+    )
+    generator = FakeGenerator(
+        '{"status":"ok","answer":"5 days.","citations":["refund_policy.md#refund-policy"]}'
+    )
+    service = ChatService(
+        database_path=Path("/tmp/not-used.db"),
+        repository=repository,
+        answer_generator=generator,
+    )
+
+    response = service.answer("What is the refund timeline?")
+
+    assert response["status"] == "ok"
+    assert response["retrieval_mode"] == "cards_plus_raw"
+    assert response["used_cards"] == ["Refund Timeline"]

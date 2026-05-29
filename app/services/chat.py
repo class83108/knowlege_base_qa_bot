@@ -52,6 +52,7 @@ class ChatService:
         top_card_score = card_results[0].score if card_results else None
         top_raw_score = raw_results[0].score if raw_results else None
 
+        contributing_cards: list[ConceptCardSearchResult] = []
         if card_results:
             supported_cards = filter_supported_cards(query, card_results)
             raw_sources = _deduplicate_citations(
@@ -81,6 +82,7 @@ class ChatService:
                         top_card_score=top_card_score,
                         strongest_evidence_score=card_evidence.strongest_score,
                     )
+                contributing_cards = supported_cards
 
         raw_evidence = select_raw_evidence(
             query=query,
@@ -104,6 +106,7 @@ class ChatService:
         return self._build_raw_response(
             query=query,
             raw_evidence_sections=raw_evidence.sections,
+            supported_cards=contributing_cards,
             top_card_score=top_card_score,
             strongest_evidence_score=raw_evidence.strongest_score,
         )
@@ -139,20 +142,34 @@ class ChatService:
         *,
         query: str,
         raw_evidence_sections: list[RawSectionSearchResult],
+        supported_cards: list[ConceptCardSearchResult],
         top_card_score: float | None,
         strongest_evidence_score: float,
     ) -> dict:
         citations = [section.citation for section in raw_evidence_sections]
-        prompt = build_grounded_answer_prompt(query=query, sections=raw_evidence_sections)
+        prompt = build_grounded_answer_prompt(
+            query=query,
+            sections=raw_evidence_sections,
+            cards=supported_cards or None,
+        )
         grounded_answer = parse_grounded_answer_response(self._answer_generator.generate(prompt))
         ok = grounded_answer.status == "ok"
         response_citations = [c for c in grounded_answer.citations if c in citations] if ok else []
+        if not ok:
+            mode = "none"
+            used_cards: list[str] = []
+        elif supported_cards:
+            mode = "cards_plus_raw"
+            used_cards = [card.title for card in supported_cards]
+        else:
+            mode = "raw"
+            used_cards = []
         response = {
             "status": grounded_answer.status,
-            "retrieval_mode": "raw" if ok else "none",
+            "retrieval_mode": mode,
             "answer": grounded_answer.answer,
             "citations": response_citations,
-            "used_cards": [],
+            "used_cards": used_cards,
             "used_raw_sections": response_citations,
             "message": "Answer generated from raw section retrieval.",
         }
