@@ -16,17 +16,20 @@ class GroundedAnswerResponse:
     citations: list[str]
 
 
+_CANNOT_CONFIRM_JSON = json.dumps(
+    {
+        "status": "cannot_confirm",
+        "answer": "I cannot confirm the answer from the knowledge base.",
+        "citations": [],
+    }
+)
+
+
 class EchoEvidenceGenerator:
     def generate(self, prompt: str) -> str:
         marker = "Evidence:\n"
         if marker not in prompt:
-            return json.dumps(
-                {
-                    "status": "cannot_confirm",
-                    "answer": "I cannot confirm the answer from the knowledge base.",
-                    "citations": [],
-                }
-            )
+            return _CANNOT_CONFIRM_JSON
         evidence = prompt.split(marker, maxsplit=1)[1].strip()
         citations = []
         for block in evidence.split("\n\n"):
@@ -58,12 +61,15 @@ class OpenAIResponsesGenerator:
         self._client = OpenAI(api_key=api_key)
 
     def generate(self, prompt: str) -> str:
-        response = self._client.responses.create(
-            model=self._model,
-            input=prompt,
-            text={"format": GROUNDED_ANSWER_FORMAT},
-        )
-        return response.output_text or "cannot_confirm"
+        try:
+            response = self._client.responses.create(
+                model=self._model,
+                input=prompt,
+                text={"format": GROUNDED_ANSWER_FORMAT},
+            )
+            return response.output_text or _CANNOT_CONFIRM_JSON
+        except Exception:
+            return _CANNOT_CONFIRM_JSON
 
 
 def build_answer_generator(
