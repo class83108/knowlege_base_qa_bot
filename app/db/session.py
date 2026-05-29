@@ -1,7 +1,10 @@
-from sqlalchemy import create_engine, text
+from pathlib import Path
+
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from app.core.config import get_settings
+from app.db.raw_index_repository import initialize_raw_index_schema
 
 _engine: Engine | None = None
 
@@ -17,7 +20,7 @@ def get_engine() -> Engine:
     return _engine
 
 
-def initialize_database() -> None:
-    engine = get_engine()
-    with engine.begin() as connection:
-        connection.execute(text("SELECT 1"))
+def initialize_database(database_path: Path | None = None) -> None:
+    if database_path is None:
+        database_path = get_settings().sqlite_path
+    initialize_raw_index_schema(database_path)

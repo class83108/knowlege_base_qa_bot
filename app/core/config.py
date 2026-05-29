@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     )
 
     app_env: str = Field(default="development")
+    docs_dir: Path = Field(default=Path("docs"))
     kb_dir: Path = Field(default=Path(".kb"))
     sqlite_path: Path = Field(default=Path(".kb/knowledge_base.db"))
 
