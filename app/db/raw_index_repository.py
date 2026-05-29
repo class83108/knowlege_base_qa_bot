@@ -536,6 +536,53 @@ class RawIndexRepository:
         finally:
             connection.close()
 
+    def get_raw_sections_by_citations(
+        self,
+        citations: list[str],
+    ) -> list[RawSectionSearchResult]:
+        if not citations:
+            return []
+        connection = sqlite3.connect(self._database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            placeholders = ",".join("?" for _ in citations)
+            rows = connection.execute(
+                f"""
+                SELECT
+                    document_path,
+                    heading,
+                    heading_path,
+                    chunk_index,
+                    content,
+                    citation,
+                    token_count,
+                    block_types_present
+                FROM raw_section
+                WHERE is_active = 1 AND citation IN ({placeholders})
+                """,
+                tuple(citations),
+            ).fetchall()
+            rows_by_citation = {
+                row["citation"]: RawSectionSearchResult(
+                    document_path=row["document_path"],
+                    heading=row["heading"],
+                    heading_path=row["heading_path"],
+                    chunk_index=row["chunk_index"],
+                    content=row["content"],
+                    citation=row["citation"],
+                    token_count=row["token_count"],
+                    block_types_present=json.loads(row["block_types_present"]),
+                )
+                for row in rows
+            }
+            return [
+                rows_by_citation[citation]
+                for citation in citations
+                if citation in rows_by_citation
+            ]
+        finally:
+            connection.close()
+
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
 STOPWORDS = {

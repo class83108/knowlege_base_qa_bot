@@ -40,39 +40,47 @@ class ChatService:
         card_results = self._repository.search_concept_cards(query, limit=3)
         if card_results:
             top_card = card_results[0]
-            prompt = build_grounded_answer_prompt(
-                query=query,
-                sections=[
-                    type("CardSection", (), {
+            raw_sections = self._repository.get_raw_sections_by_citations(
+                top_card.raw_sources
+            )
+            prompt_sections = raw_sections or [
+                type(
+                    "CardSection",
+                    (),
+                    {
                         "citation": raw_source,
                         "content": top_card.summary,
-                    })()
-                    for raw_source in top_card.raw_sources
-                ],
+                    },
+                )()
+                for raw_source in top_card.raw_sources
+            ]
+            prompt = build_grounded_answer_prompt(
+                query=query,
+                sections=prompt_sections,
             )
             grounded_answer = parse_grounded_answer_response(
                 self._answer_generator.generate(prompt)
             )
+            allowed_citations = [section.citation for section in prompt_sections]
+            response_citations = [
+                citation
+                for citation in grounded_answer.citations
+                if citation in allowed_citations
+            ]
             response = {
                 "status": grounded_answer.status,
-                "retrieval_mode": "cards" if grounded_answer.status == "ok" else "none",
+                "retrieval_mode": (
+                    "cards_plus_raw" if grounded_answer.status == "ok" else "none"
+                ),
                 "answer": grounded_answer.answer,
-                "citations": [
-                    citation
-                    for citation in grounded_answer.citations
-                    if citation in top_card.raw_sources
-                ],
+                "citations": response_citations,
                 "used_cards": [top_card.title] if grounded_answer.status == "ok" else [],
                 "used_raw_sections": (
-                    [
-                        citation
-                        for citation in grounded_answer.citations
-                        if citation in top_card.raw_sources
-                    ]
+                    response_citations
                     if grounded_answer.status == "ok"
                     else []
                 ),
-                "message": "Answer generated from concept card retrieval.",
+                "message": "Answer generated from concept card retrieval with raw support.",
             }
             self._log_query(query, response)
             return response

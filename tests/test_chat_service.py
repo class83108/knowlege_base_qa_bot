@@ -26,6 +26,10 @@ class FakeRepository:
     def search_concept_cards(self, query: str, *, limit: int):
         return self._card_results
 
+    def get_raw_sections_by_citations(self, citations: list[str]) -> list[RawSectionSearchResult]:
+        wanted = set(citations)
+        return [result for result in self._results if result.citation in wanted]
+
     def log_query_record(self, record: QueryRecord) -> None:
         self.logged.append(record)
 
@@ -113,8 +117,9 @@ def test_chat_service_prefers_concept_cards_before_raw_sections() -> None:
     response = service.answer("How long do refunds take?")
 
     assert response["status"] == "ok"
-    assert response["retrieval_mode"] == "cards"
+    assert response["retrieval_mode"] == "cards_plus_raw"
     assert response["used_cards"] == ["Refund Timeline"]
+    assert response["used_raw_sections"] == ["refund_policy.md#refund-timeline"]
 
 
 def test_chat_service_can_use_generator_fallback_answer() -> None:
